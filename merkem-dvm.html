@@ -1,0 +1,2888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MERKEM — distributed deterministic VM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0a0a0b;
+  --bg2:      #111114;
+  --bg3:      #18181d;
+  --bg4:      #1e1e25;
+  --border:   #2a2a35;
+  --border2:  #35354a;
+  --text:     #e8e8f0;
+  --text2:    #9090b0;
+  --text3:    #55556a;
+  --accent:   #5b8af0;
+  --accent2:  #3d6fd4;
+  --green:    #3ecf6e;
+  --amber:    #f0a93b;
+  --red:      #e05252;
+  --purple:   #a78bfa;
+  --cyan:     #38bdf8;
+  --mono:     'IBM Plex Mono', monospace;
+  --sans:     'IBM Plex Sans', sans-serif;
+  --radius:   6px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 1.5; overflow: hidden; }
+
+/* ── Layout ── */
+.shell { display: grid; grid-template-rows: 44px 1fr; height: 100vh; }
+.topbar { display: flex; align-items: center; gap: 0; border-bottom: 1px solid var(--border); padding: 0 16px; background: var(--bg2); }
+.logo { font-family: var(--mono); font-weight: 600; font-size: 14px; letter-spacing: 0.08em; color: var(--text); margin-right: 24px; }
+.logo em { color: var(--accent); font-style: normal; }
+.tabs-top { display: flex; gap: 0; height: 44px; }
+.tab-top { display: flex; align-items: center; padding: 0 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; white-space: nowrap; }
+.tab-top:hover { color: var(--text2); }
+.tab-top.active { color: var(--text); border-bottom-color: var(--accent); }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.status-label { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+
+.workspace { display: none; height: 100%; overflow: hidden; }
+.workspace.active { display: flex; }
+
+/* ── Run tab: left panel + right panel ── */
+.panel-split { display: grid; grid-template-columns: 380px 1fr; height: 100%; }
+.panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+.panel-header { display: flex; align-items: center; padding: 0 14px; height: 36px; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; gap: 8px; }
+.panel-title { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; color: var(--text3); text-transform: uppercase; }
+.panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── Workflow editor ── */
+#workflow-editor {
+  width: 100%; height: 160px; resize: vertical; min-height: 100px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font-family: var(--mono); font-size: 12px; line-height: 1.6;
+  padding: 10px 12px; outline: none; tab-size: 2;
+  transition: border-color .15s;
+}
+#workflow-editor:focus { border-color: var(--border2); }
+
+.presets-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.preset-btn { font-family: var(--mono); font-size: 10px; padding: 3px 8px; border: 1px solid var(--border2); border-radius: 3px; background: transparent; color: var(--text3); cursor: pointer; transition: all .12s; }
+.preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Controls row ── */
+.controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: var(--radius); font-family: var(--mono); font-size: 11px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: all .12s; white-space: nowrap; }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent2); }
+.btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+.btn-ghost { background: transparent; border-color: var(--border2); color: var(--text2); }
+.btn-ghost:hover { border-color: var(--text3); color: var(--text); }
+.btn-danger { background: transparent; border-color: #3a2020; color: var(--red); }
+.btn-danger:hover { background: #1a1010; }
+
+/* ── Effect controls ── */
+.effect-row { margin-top: 12px; }
+.section-label { font-family: var(--mono); font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+.effect-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.effect-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; transition: border-color .12s; }
+.effect-card:hover { border-color: var(--border2); }
+.effect-card .ek { font-family: var(--mono); font-size: 10px; color: var(--purple); }
+.effect-card .ev { font-size: 11px; color: var(--text2); margin-top: 1px; }
+
+/* ── Output area ── */
+.output-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.output-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.output-tab { padding: 6px 14px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; transition: all .12s; }
+.output-tab:hover { color: var(--text2); }
+.output-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.output-content { flex: 1; overflow: hidden; position: relative; }
+.output-pane { display: none; position: absolute; inset: 0; overflow-y: auto; padding: 12px; }
+.output-pane.active { display: block; }
+.output-pane::-webkit-scrollbar { width: 4px; }
+.output-pane::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── Event log ── */
+.event-item { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
+.event-item:last-child { border-bottom: none; }
+.ev-seq { font-family: var(--mono); font-size: 10px; color: var(--text3); min-width: 22px; padding-top: 1px; }
+.ev-op { font-family: var(--mono); font-size: 11px; color: var(--cyan); min-width: 90px; }
+.ev-result { font-family: var(--mono); font-size: 11px; color: var(--green); flex: 1; word-break: break-all; }
+.ev-hash { font-family: var(--mono); font-size: 9px; color: var(--text3); margin-top: 2px; }
+.ev-error { color: var(--red); }
+
+/* ── DAG canvas ── */
+#dag-canvas { width: 100%; height: 100%; }
+
+/* ── Proof bundle ── */
+.proof-section { margin-bottom: 14px; }
+.proof-section-title { font-family: var(--mono); font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.kv-row { display: flex; gap: 8px; padding: 3px 0; }
+.kv-key { font-family: var(--mono); font-size: 11px; color: var(--text3); min-width: 100px; }
+.kv-val { font-family: var(--mono); font-size: 11px; color: var(--text); word-break: break-all; }
+.kv-val.hash { color: var(--accent); font-size: 10px; }
+.kv-val.ok { color: var(--green); }
+.kv-val.warn { color: var(--amber); }
+.node-row { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; margin-bottom: 2px; background: var(--bg3); align-items: center; }
+.node-type { font-family: var(--mono); font-size: 9px; color: var(--purple); min-width: 48px; }
+.node-op { font-family: var(--mono); font-size: 10px; color: var(--text3); min-width: 80px; }
+.node-val { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-hash { font-family: var(--mono); font-size: 9px; color: var(--text3); }
+
+/* ── Export raw ── */
+.raw-json { font-family: var(--mono); font-size: 10px; color: var(--text2); white-space: pre-wrap; word-break: break-all; line-height: 1.7; }
+
+/* ── Verify panel ── */
+.verify-result { padding: 12px; border-radius: var(--radius); margin-bottom: 10px; }
+.verify-ok { background: #0d1f14; border: 1px solid #1a3d2a; }
+.verify-fail { background: #1f0d0d; border: 1px solid #3d1a1a; }
+.verify-title { font-family: var(--mono); font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.verify-ok .verify-title { color: var(--green); }
+.verify-fail .verify-title { color: var(--red); }
+.verify-stat { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+
+/* ── Replay tab ── */
+.replay-workspace { display: flex; flex-direction: column; height: 100%; }
+.replay-controls { padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--bg2); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.replay-track { flex: 1; min-width: 200px; }
+.replay-track input[type=range] { width: 100%; accent-color: var(--accent); }
+.replay-seq { font-family: var(--mono); font-size: 11px; color: var(--text2); min-width: 60px; }
+.replay-body { flex: 1; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; }
+.replay-log { overflow-y: auto; padding: 12px; border-right: 1px solid var(--border); }
+.replay-log::-webkit-scrollbar { width: 4px; }
+.replay-log::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.replay-state { overflow-y: auto; padding: 12px; }
+
+/* ── Docs tab ── */
+.docs-workspace { height: 100%; overflow-y: auto; padding: 28px 32px; max-width: 760px; }
+.docs-workspace::-webkit-scrollbar { width: 4px; }
+.docs-workspace::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.docs-h1 { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.docs-sub { font-size: 13px; color: var(--text2); margin-bottom: 24px; }
+.docs-h2 { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin: 20px 0 8px; }
+.docs-p { font-size: 13px; color: var(--text2); line-height: 1.7; margin-bottom: 8px; }
+.docs-code { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-family: var(--mono); font-size: 11px; color: var(--text); margin: 8px 0 12px; white-space: pre-wrap; line-height: 1.7; }
+.docs-table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; }
+.docs-table th { font-family: var(--mono); font-size: 10px; color: var(--text3); text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.docs-table td { font-family: var(--mono); font-size: 11px; padding: 4px 8px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+.docs-table td:first-child { color: var(--cyan); }
+
+/* ── Toast ── */
+.toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg3); border: 1px solid var(--border2); border-radius: var(--radius); padding: 10px 14px; font-family: var(--mono); font-size: 11px; color: var(--text); box-shadow: 0 4px 20px rgba(0,0,0,.5); z-index: 9999; transform: translateY(8px); opacity: 0; transition: all .2s; pointer-events: none; }
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-color: #1a3d2a; color: var(--green); }
+.toast.error { border-color: #3d1a1a; color: var(--red); }
+
+/* ── Misc ── */
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; color: var(--text3); font-family: var(--mono); font-size: 11px; }
+.badge { display: inline-block; font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 500; }
+.badge-green { background: #0d2018; color: var(--green); }
+.badge-amber { background: #201808; color: var(--amber); }
+.badge-red { background: #200808; color: var(--red); }
+.badge-blue { background: #080f20; color: var(--accent); }
+.running-indicator { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+hr.divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+.spin { animation: spin .8s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Net peers badge ── */
+.net-peers-badge { font-family: var(--mono); font-size: 10px; color: var(--text3); padding: 2px 8px; border-radius: 3px; border: 1px solid var(--border); transition: all .3s; }
+.net-peers-badge.has-peers { color: var(--cyan); border-color: #0d2a3a; background: #050f18; }
+
+/* ── Network tab ── */
+.net-workspace { display: grid; grid-template-columns: 300px 1fr; height: 100%; }
+.net-sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
+.net-main { display: flex; flex-direction: column; overflow: hidden; }
+
+/* Topology canvas */
+#net-canvas { width: 100%; height: 100%; display: block; }
+.net-canvas-wrap { flex: 1; position: relative; background: var(--bg); overflow: hidden; }
+
+/* Node card in sidebar */
+.peer-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 6px; cursor: pointer; transition: border-color .12s; }
+.peer-card:hover, .peer-card.selected { border-color: var(--accent); }
+.peer-card.self-node { border-color: #1e3a5f; background: #080f1f; }
+.peer-card-header { display: flex; align-items: center; gap: 8px; }
+.peer-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.peer-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.peer-dot.syncing { background: var(--amber); animation: pulse 1s infinite; }
+.peer-dot.offline { background: var(--text3); }
+.peer-dot.self { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.peer-id { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peer-role { font-family: var(--mono); font-size: 9px; padding: 1px 5px; border-radius: 2px; }
+.peer-role.coordinator { background: #0d1025; color: var(--accent); border: 1px solid #1e2850; }
+.peer-role.worker { background: #0d1a0d; color: var(--green); border: 1px solid #1e3d1e; }
+.peer-role.validator { background: #1a0d25; color: var(--purple); border: 1px solid #3d1e50; }
+.peer-stats { display: flex; gap: 10px; margin-top: 5px; }
+.peer-stat { font-family: var(--mono); font-size: 9px; color: var(--text3); }
+.peer-stat em { color: var(--text2); font-style: normal; }
+
+/* Gossip feed */
+.gossip-feed { flex: 1; overflow-y: auto; padding: 8px 10px; }
+.gossip-feed::-webkit-scrollbar { width: 3px; }
+.gossip-feed::-webkit-scrollbar-thumb { background: var(--border2); }
+.gossip-item { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 10px; align-items: flex-start; }
+.gossip-item:last-child { border-bottom: none; }
+.gossip-time { font-family: var(--mono); font-size: 9px; color: var(--text3); min-width: 44px; }
+.gossip-from { font-family: var(--mono); font-size: 9px; color: var(--cyan); min-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gossip-msg { font-family: var(--mono); font-size: 10px; color: var(--text2); flex: 1; word-break: break-word; }
+.gossip-msg.sync { color: var(--green); }
+.gossip-msg.exec { color: var(--accent); }
+.gossip-msg.verify { color: var(--purple); }
+.gossip-msg.consensus { color: var(--amber); }
+.gossip-msg.fault { color: var(--red); }
+
+/* Execution panel */
+.exec-panel { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.exec-queue { overflow-y: auto; padding: 10px 12px; flex: 1; }
+.exec-queue::-webkit-scrollbar { width: 3px; }
+.exec-queue::-webkit-scrollbar-thumb { background: var(--border2); }
+
+.task-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 6px; }
+.task-card.running { border-color: var(--accent); }
+.task-card.done { border-color: #1a3d2a; background: #040f0a; }
+.task-card.failed { border-color: #3d1a1a; background: #0f0404; }
+.task-card.pending { border-color: var(--border2); opacity: .7; }
+.task-header { display: flex; align-items: center; gap: 8px; }
+.task-id { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+.task-wf { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; }
+.task-status-badge { font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 3px; }
+.task-status-badge.running { background: #0a1228; color: var(--accent); }
+.task-status-badge.done { background: #0d2018; color: var(--green); }
+.task-status-badge.failed { background: #200808; color: var(--red); }
+.task-status-badge.pending { background: var(--bg4); color: var(--text3); }
+.task-meta { display: flex; gap: 12px; margin-top: 4px; }
+.task-meta-item { font-family: var(--mono); font-size: 9px; color: var(--text3); }
+.task-meta-item em { color: var(--text2); font-style: normal; }
+.task-progress { height: 2px; background: var(--border); border-radius: 1px; margin-top: 6px; overflow: hidden; }
+.task-progress-bar { height: 100%; background: var(--accent); border-radius: 1px; transition: width .3s; }
+.task-card.done .task-progress-bar { background: var(--green); }
+.task-card.failed .task-progress-bar { background: var(--red); }
+
+/* Consensus panel */
+.consensus-block { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 6px; }
+.consensus-block.proposed { border-color: var(--amber); }
+.consensus-block.committed { border-color: #1a3d2a; background: #040f0a; }
+.consensus-block.rejected { border-color: #3d1a1a; }
+.cb-header { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; }
+.cb-round { color: var(--text3); min-width: 50px; }
+.cb-hash { color: var(--accent); font-size: 9px; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.cb-votes { color: var(--text2); }
+.cb-status { font-size: 9px; padding: 1px 5px; border-radius: 2px; }
+.cb-status.proposed { background: #201808; color: var(--amber); }
+.cb-status.committed { background: #0d2018; color: var(--green); }
+.cb-status.rejected { background: #200808; color: var(--red); }
+
+/* Net controls */
+.net-controls { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+
+/* Stats bar */
+.net-stats-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; }
+.net-stat-cell { padding: 6px 14px; border-right: 1px solid var(--border); font-family: var(--mono); }
+.net-stat-cell:last-child { border-right: none; }
+.net-stat-label { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: .04em; }
+.net-stat-value { font-size: 13px; color: var(--text); margin-top: 1px; }
+.net-stat-value.green { color: var(--green); }
+.net-stat-value.amber { color: var(--amber); }
+.net-stat-value.cyan { color: var(--cyan); }
+
+/* Sub-tabs in net */
+.net-sub-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; }
+.net-sub-tab { padding: 5px 12px; font-family: var(--mono); font-size: 10px; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; }
+.net-sub-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.net-sub-pane { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.net-sub-pane.active { display: flex; }
+
+/* WantList / bloom */
+.want-item { display: flex; gap: 8px; padding: 3px 0; font-family: var(--mono); font-size: 10px; border-bottom: 1px solid var(--border); }
+.want-item:last-child { border-bottom: none; }
+.want-hash { color: var(--accent); font-size: 9px; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.want-peers { color: var(--text3); font-size: 9px; }
+.want-status { color: var(--green); font-size: 9px; min-width: 50px; }
+
+/* msg flash animation */
+@keyframes msgFlash { 0% { background: #0a1a30; } 100% { background: transparent; } }
+.gossip-flash { animation: msgFlash .6s ease-out; }
+
+.ollama-status { font-family: var(--mono); font-size: 10px; color: var(--text3); padding: 2px 8px; border-radius: 3px; border: 1px solid var(--border); cursor: default; transition: all .2s; }
+.ollama-status.connected { color: var(--green); border-color: #1a3d2a; background: #0d2018; }
+.ollama-status.error { color: var(--red); border-color: #3d1a1a; background: #1f0d0d; }
+.ollama-status.checking { color: var(--amber); border-color: #3d2a00; animation: pulse 1s infinite; }
+
+.ai-msg { border-radius: var(--radius); padding: 10px 12px; }
+.ai-msg-system { background: var(--bg3); border: 1px solid var(--border); }
+.ai-msg-user { background: #0c0f1f; border: 1px solid #1a2040; align-self: flex-end; max-width: 90%; }
+.ai-msg-assistant { background: var(--bg3); border: 1px solid var(--border2); }
+.ai-msg-error { background: #1f0d0d; border: 1px solid #3d1a1a; }
+.ai-msg-label { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-bottom: 4px; }
+.ai-msg-user .ai-msg-label { color: var(--accent); }
+.ai-msg-assistant .ai-msg-label { color: var(--purple); }
+.ai-msg-error .ai-msg-label { color: var(--red); }
+.ai-msg-body { font-size: 12px; color: var(--text2); line-height: 1.6; }
+.ai-msg-body em { color: var(--text3); font-style: normal; font-family: var(--mono); font-size: 11px; }
+.ai-thinking { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+.ai-thinking span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: thinking-dot .9s ease-in-out infinite; }
+.ai-thinking span:nth-child(2) { animation-delay: .2s; }
+.ai-thinking span:nth-child(3) { animation-delay: .4s; }
+@keyframes thinking-dot { 0%,80%,100% { opacity: .15; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
+
+.ai-chip { font-family: var(--mono); font-size: 10px; padding: 3px 8px; border: 1px solid var(--border2); border-radius: 3px; background: transparent; color: var(--text3); cursor: pointer; transition: all .12s; white-space: nowrap; }
+.ai-chip:hover { border-color: var(--accent); color: var(--accent); }
+/* replay highlight */
+.ev-highlight { background: #0d1525; border-left: 2px solid var(--accent); padding-left: 6px; border-radius: 0 3px 3px 0; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <span class="logo"><em>mk</em> merkem <span style="font-size:9px;color:var(--text3);letter-spacing:0.04em;font-weight:400">dvm</span></span>
+    <div class="tabs-top" id="main-tabs">
+      <div class="tab-top active" data-tab="run">run</div>
+      <div class="tab-top" data-tab="network">⬡ network</div>
+      <div class="tab-top" data-tab="ai">✦ ai build</div>
+      <div class="tab-top" data-tab="replay">replay</div>
+      <div class="tab-top" data-tab="verify">verify</div>
+      <div class="tab-top" data-tab="docs">docs</div>
+    </div>
+    <div class="topbar-right">
+      <span class="net-peers-badge" id="net-peers-badge" title="connected peers">⬡ 0 peers</span>
+      <span class="ollama-status" id="ollama-indicator" title="Ollama connection">⬡ ollama</span>
+      <span class="status-dot" id="status-dot"></span>
+      <span class="status-label" id="status-label">ready</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════ RUN TAB ════════════════════ -->
+  <div class="workspace active" id="tab-run">
+    <div class="panel-split">
+
+      <!-- Left: workflow editor -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">workflow</span>
+        </div>
+        <div class="panel-body">
+          <textarea id="workflow-editor" spellcheck="false"></textarea>
+          <div class="presets-row" id="presets"></div>
+          <hr class="divider">
+          <div class="controls">
+            <button class="btn btn-primary" id="run-btn">▶ run</button>
+            <button class="btn btn-ghost" id="commit-btn">⬡ commit</button>
+            <button class="btn btn-ghost" id="clear-btn">× clear</button>
+          </div>
+          <hr class="divider">
+          <div class="effect-row">
+            <div class="section-label">effects</div>
+            <div class="effect-grid" id="effect-grid"></div>
+          </div>
+          <hr class="divider">
+          <div id="runtime-info-panel">
+            <div class="section-label">runtime state</div>
+            <div id="runtime-info-content"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: output panes -->
+      <div class="output-area">
+        <div class="output-tabs">
+          <div class="output-tab active" data-out="events">events</div>
+          <div class="output-tab" data-out="dag">dag</div>
+          <div class="output-tab" data-out="bundle">bundle</div>
+          <div class="output-tab" data-out="raw">raw json</div>
+        </div>
+        <div class="output-content">
+          <div class="output-pane active" id="out-events">
+            <div class="empty-state" id="events-empty">
+              <span style="font-size:22px;opacity:.2">⬡</span>
+              <span>run a workflow to see events</span>
+            </div>
+            <div id="events-list" style="display:none"></div>
+          </div>
+          <div class="output-pane" id="out-dag">
+            <canvas id="dag-canvas"></canvas>
+          </div>
+          <div class="output-pane" id="out-bundle">
+            <div class="empty-state" id="bundle-empty">
+              <span style="font-size:22px;opacity:.2">⬡</span>
+              <span>execute a workflow to generate bundle</span>
+            </div>
+            <div id="bundle-content" style="display:none"></div>
+          </div>
+          <div class="output-pane" id="out-raw">
+            <div class="empty-state" id="raw-empty">
+              <span style="font-size:22px;opacity:.2">{ }</span>
+              <span>no bundle yet</span>
+            </div>
+            <pre class="raw-json" id="raw-json" style="display:none"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ REPLAY TAB ════════════════════ -->
+  <div class="workspace" id="tab-replay">
+    <div class="replay-workspace">
+      <div class="replay-controls">
+        <button class="btn btn-ghost" id="replay-prev">← prev</button>
+        <div class="replay-track">
+          <input type="range" id="replay-slider" min="0" max="0" value="0">
+        </div>
+        <button class="btn btn-ghost" id="replay-next">next →</button>
+        <span class="replay-seq" id="replay-seq">event 0 / 0</span>
+        <button class="btn btn-primary" id="replay-all-btn">replay all</button>
+      </div>
+      <div class="replay-body">
+        <div class="replay-log" id="replay-log">
+          <div class="empty-state">run a workflow first, then replay here</div>
+        </div>
+        <div class="replay-state" id="replay-state">
+          <div class="section-label">state at event</div>
+          <div id="replay-state-content"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ VERIFY TAB ════════════════════ -->
+  <div class="workspace" id="tab-verify">
+    <div style="padding:20px;height:100%;overflow-y:auto;">
+      <div style="max-width:600px;">
+        <div class="section-label" style="margin-bottom:10px;">paste bundle json or run a workflow first</div>
+        <textarea id="verify-input" style="width:100%;height:140px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:11px;padding:10px;outline:none;resize:vertical;line-height:1.6;" placeholder='{"schema":"merkem@2",...}'></textarea>
+        <div class="controls" style="margin-top:8px;">
+          <button class="btn btn-primary" id="verify-btn">verify bundle</button>
+          <button class="btn btn-ghost" id="verify-load-current">load current</button>
+          <label style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--text2);cursor:pointer;">
+            <input type="checkbox" id="verify-full"> full re-exec
+          </label>
+        </div>
+        <div id="verify-results" style="margin-top:16px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ NETWORK TAB ════════════════════ -->
+  <div class="workspace" id="tab-network">
+    <div class="net-workspace">
+
+      <!-- LEFT: Peers sidebar -->
+      <div class="net-sidebar">
+        <div class="panel-header">
+          <span class="panel-title">peers</span>
+          <div style="margin-left:auto;display:flex;gap:6px;">
+            <button class="btn btn-ghost" id="net-add-peer-btn" style="font-size:10px;padding:3px 8px;">+ spawn</button>
+            <button class="btn btn-ghost" id="net-partition-btn" style="font-size:10px;padding:3px 8px;" title="Toggle network partition">⚡ partition</button>
+          </div>
+        </div>
+        <div class="panel-body" style="padding:8px;overflow-y:auto;">
+          <div id="peers-list"></div>
+        </div>
+        <div style="border-top:1px solid var(--border);flex-shrink:0;">
+          <div class="panel-header" style="height:28px;">
+            <span class="panel-title">gossip log</span>
+            <button id="net-clear-gossip" style="margin-left:auto;font-family:var(--mono);font-size:9px;background:none;border:none;color:var(--text3);cursor:pointer;">clear</button>
+          </div>
+          <div class="gossip-feed" id="gossip-feed" style="max-height:160px;"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Main content -->
+      <div class="net-main">
+
+        <!-- Stats bar -->
+        <div class="net-stats-bar" id="net-stats-bar">
+          <div class="net-stat-cell">
+            <div class="net-stat-label">peers</div>
+            <div class="net-stat-value cyan" id="ns-peers">0</div>
+          </div>
+          <div class="net-stat-cell">
+            <div class="net-stat-label">dag nodes</div>
+            <div class="net-stat-value" id="ns-dag">0</div>
+          </div>
+          <div class="net-stat-cell">
+            <div class="net-stat-label">tasks</div>
+            <div class="net-stat-value green" id="ns-tasks">0</div>
+          </div>
+          <div class="net-stat-cell">
+            <div class="net-stat-label">consensus round</div>
+            <div class="net-stat-value amber" id="ns-round">0</div>
+          </div>
+          <div class="net-stat-cell">
+            <div class="net-stat-label">messages</div>
+            <div class="net-stat-value" id="ns-msgs">0</div>
+          </div>
+          <div class="net-stat-cell">
+            <div class="net-stat-label">partitioned</div>
+            <div class="net-stat-value" id="ns-partition" style="color:var(--green)">no</div>
+          </div>
+        </div>
+
+        <!-- Sub-tabs -->
+        <div class="net-sub-tabs" id="net-sub-tabs">
+          <div class="net-sub-tab active" data-pane="topology">topology</div>
+          <div class="net-sub-tab" data-pane="tasks">task queue</div>
+          <div class="net-sub-tab" data-pane="consensus">consensus</div>
+          <div class="net-sub-tab" data-pane="sync">dag sync</div>
+        </div>
+
+        <!-- Topology pane -->
+        <div class="net-sub-pane active" id="net-pane-topology">
+          <div class="net-canvas-wrap" id="net-canvas-wrap">
+            <canvas id="net-canvas"></canvas>
+            <div style="position:absolute;bottom:10px;left:12px;font-family:var(--mono);font-size:9px;color:var(--text3);">
+              click peer to inspect · drag to layout · click edge to simulate message
+            </div>
+          </div>
+        </div>
+
+        <!-- Task queue pane -->
+        <div class="net-sub-pane" id="net-pane-tasks" style="flex-direction:column;">
+          <div class="net-controls">
+            <button class="btn btn-primary" id="net-dispatch-btn" style="font-size:10px;">⊕ dispatch workflow</button>
+            <button class="btn btn-ghost" id="net-dispatch-current-btn" style="font-size:10px;">dispatch current</button>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:8px;" id="net-sched-mode">sched: round-robin</span>
+            <button class="btn btn-ghost" id="net-sched-toggle" style="font-size:10px;padding:3px 8px;">toggle</button>
+          </div>
+          <div class="exec-queue" id="exec-queue">
+            <div class="empty-state" style="height:200px;" id="task-empty">
+              <span style="font-size:22px;opacity:.2">⬡</span>
+              <span>dispatch workflows to the network</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Consensus pane -->
+        <div class="net-sub-pane" id="net-pane-consensus" style="flex-direction:column;">
+          <div class="net-controls">
+            <button class="btn btn-primary" id="net-propose-btn" style="font-size:10px;">⊕ propose block</button>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3);" id="consensus-algo">algo: pBFT-lite</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:12px;" id="consensus-threshold">threshold: ⌊2/3⌋+1</span>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:10px 12px;" id="consensus-log">
+            <div class="empty-state" style="height:200px;">
+              <span style="font-size:22px;opacity:.2">⬡</span>
+              <span>consensus blocks appear here</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- DAG Sync pane -->
+        <div class="net-sub-pane" id="net-pane-sync" style="flex-direction:column;">
+          <div class="net-controls">
+            <button class="btn btn-primary" id="net-sync-btn" style="font-size:10px;">⟳ sync all peers</button>
+            <button class="btn btn-ghost" id="net-bloom-btn" style="font-size:10px;">bloom filter</button>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3);" id="sync-status-label">idle</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden;">
+            <div style="border-right:1px solid var(--border);overflow-y:auto;padding:10px 12px;">
+              <div class="section-label" style="margin-bottom:6px;">want list</div>
+              <div id="want-list"></div>
+            </div>
+            <div style="overflow-y:auto;padding:10px 12px;">
+              <div class="section-label" style="margin-bottom:6px;">have set (local dag)</div>
+              <div id="have-set"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ AI BUILD TAB ════════════════════ -->
+  <div class="workspace" id="tab-ai">
+    <div class="panel-split" style="grid-template-columns: 420px 1fr;">
+
+      <!-- Left: AI chat panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">ollama — natural language builder</span>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+            <span class="badge badge-blue" id="ai-model-badge">llama3.2</span>
+          </div>
+        </div>
+        <div class="panel-body" style="display:flex;flex-direction:column;gap:0;height:100%;padding:0;">
+
+          <!-- Settings bar -->
+          <div style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <div style="flex:1;min-width:180px;">
+                <div class="section-label" style="margin-bottom:3px;">ollama endpoint</div>
+                <input id="ollama-url" value="http://localhost:11434" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:11px;padding:4px 8px;outline:none;">
+              </div>
+              <div style="flex:1;min-width:120px;">
+                <div class="section-label" style="margin-bottom:3px;">model</div>
+                <input id="ollama-model" value="llama3.2" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:11px;padding:4px 8px;outline:none;">
+              </div>
+              <div style="display:flex;flex-direction:column;justify-content:flex-end;gap:3px;">
+                <div class="section-label" style="margin-bottom:3px;">‎</div>
+                <button class="btn btn-ghost" id="ollama-ping-btn" style="padding:4px 10px;font-size:10px;">ping</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat messages -->
+          <div id="ai-chat-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;">
+            <div class="ai-msg ai-msg-system">
+              <div class="ai-msg-label">system</div>
+              <div class="ai-msg-body">Connected to local Ollama (llama3.2). Describe what you want to compute and I'll build a merkem workflow. Try: <em>"hash my name three times"</em> or <em>"compute fibonacci of 10"</em> or <em>"check if 'merkem' contains 'erk'"</em>.</div>
+            </div>
+          </div>
+
+          <!-- Input row -->
+          <div style="padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg2);">
+            <div style="display:flex;gap:8px;align-items:flex-end;">
+              <textarea id="ai-prompt" rows="2" placeholder="describe your workflow in plain english…" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px 10px;outline:none;resize:none;line-height:1.5;"></textarea>
+              <button class="btn btn-primary" id="ai-send-btn" style="height:52px;padding:0 16px;">build ↗</button>
+            </div>
+            <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap;" id="ai-suggestion-chips"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: generated workflow preview + actions -->
+      <div style="display:flex;flex-direction:column;overflow:hidden;">
+        <div class="panel-header">
+          <span class="panel-title">generated workflow</span>
+          <div style="margin-left:auto;display:flex;gap:8px;">
+            <button class="btn btn-ghost" id="ai-copy-wf-btn" style="font-size:10px;padding:3px 10px;" disabled>copy</button>
+            <button class="btn btn-primary" id="ai-send-to-run-btn" style="font-size:10px;padding:3px 12px;" disabled>→ send to run tab</button>
+          </div>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px;">
+          <div id="ai-wf-empty" class="empty-state" style="height:200px;">
+            <span style="font-size:22px;opacity:.2">✦</span>
+            <span>generated workflow appears here</span>
+          </div>
+          <textarea id="ai-wf-editor" spellcheck="false" style="display:none;width:100%;min-height:260px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:10px 12px;outline:none;resize:vertical;tab-size:2;line-height:1.6;"></textarea>
+          <div id="ai-wf-explanation" style="display:none;"></div>
+          <div id="ai-run-preview" style="display:none;">
+            <div class="section-label" style="margin-bottom:6px;">quick run preview</div>
+            <div id="ai-preview-events" style="display:flex;flex-direction:column;gap:4px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ DOCS TAB ════════════════════ -->
+  <div class="workspace" id="tab-docs">
+    <div class="docs-workspace" id="docs-content"></div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// MERKEM ENGINE — ported to browser
+// ══════════════════════════════════════════════════════════
+
+// ── sha256 ──
+async function sha256(input) {
+  let bytes = typeof input === 'string' ? new TextEncoder().encode(input)
+            : input instanceof ArrayBuffer ? new Uint8Array(input)
+            : input;
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ── canonical ──
+function canonicalValue(v, type) {
+  switch(type) {
+    case 'number': {
+      const n = Number(v);
+      if (Number.isNaN(n)) return '__NaN__';
+      if (n===Infinity) return '__+Inf__';
+      if (n===-Infinity) return '__-Inf__';
+      if (Object.is(n,-0)) return '0';
+      return n.toString();
+    }
+    case 'boolean': return (v===true||v==='true') ? 'true' : 'false';
+    case 'list': return JSON.stringify(Array.isArray(v)?v:[]);
+    case 'map': return JSON.stringify(sortedKeys(v));
+    case 'null': case 'unit': return 'null';
+    default: return String(v).normalize('NFC');
+  }
+}
+function sortedKeys(obj) {
+  if(!obj||typeof obj!=='object') return obj;
+  const out={};
+  for(const k of Object.keys(obj).sort()) out[k]=obj[k];
+  return out;
+}
+function encodeNode(type,value,deps=[]) {
+  return JSON.stringify({t:type,v:canonicalValue(value,type),d:[...deps].sort()});
+}
+function encodeEvent(op,inputs,meta={}) {
+  return JSON.stringify({t:'event',op,in:inputs.map(i=>i&&i.hash?i.hash:i),m:JSON.stringify(sortedKeys(meta))});
+}
+function encodeSnapshot(version,roots,extra={}) {
+  return JSON.stringify({t:'snapshot',v:version,r:[...roots].sort(),x:JSON.stringify(sortedKeys(extra))});
+}
+
+// ── types ──
+function inferType(v) {
+  if(v===null||v===undefined) return 'null';
+  if(typeof v==='number') return 'number';
+  if(typeof v==='boolean') return 'boolean';
+  if(Array.isArray(v)) return 'list';
+  if(v instanceof Uint8Array) return 'bytes';
+  if(typeof v==='object') return 'map';
+  if(typeof v==='string'){
+    if(/^[0-9a-f]{64}$/.test(v)) return 'hash';
+    return 'string';
+  }
+  return 'string';
+}
+
+// ── builtins ──
+const BUILTINS = {
+  add:(a,b)=>Number(a)+Number(b), sub:(a,b)=>Number(a)-Number(b),
+  mul:(a,b)=>Number(a)*Number(b), div:(a,b)=>{if(Number(b)===0)throw new Error('Division by zero');return Number(a)/Number(b);},
+  mod:(a,b)=>Number(a)%Number(b), abs:a=>Math.abs(Number(a)), neg:a=>-Number(a),
+  pow:(a,b)=>Math.pow(Number(a),Number(b)), floor:a=>Math.floor(Number(a)), ceil:a=>Math.ceil(Number(a)),
+  round:a=>Math.round(Number(a)), min:(a,b)=>Math.min(Number(a),Number(b)), max:(a,b)=>Math.max(Number(a),Number(b)),
+  clamp:(v,lo,hi)=>Math.min(Math.max(Number(v),Number(lo)),Number(hi)),
+  eq:(a,b)=>a===b, neq:(a,b)=>a!==b, lt:(a,b)=>Number(a)<Number(b), gt:(a,b)=>Number(a)>Number(b),
+  lte:(a,b)=>Number(a)<=Number(b), gte:(a,b)=>Number(a)>=Number(b),
+  not:a=>!a, and:(a,b)=>Boolean(a)&&Boolean(b), or:(a,b)=>Boolean(a)||Boolean(b),
+  xor:(a,b)=>Boolean(a)!==Boolean(b), ifelse:(c,t,f)=>Boolean(c)?t:f,
+  concat:(a,b)=>String(a)+String(b), len:s=>String(s).length, upper:s=>String(s).toUpperCase(),
+  lower:s=>String(s).toLowerCase(), trim:s=>String(s).trim(),
+  starts_with:(s,p)=>String(s).startsWith(String(p)), ends_with:(s,p)=>String(s).endsWith(String(p)),
+  includes:(s,p)=>String(s).includes(String(p)), replace:(s,f,t)=>String(s).replaceAll(String(f),String(t)),
+  split:(s,d)=>String(s).split(String(d)), slice_str:(s,i,j)=>String(s).slice(Number(i),Number(j)),
+  sha256:async(v,hashFn)=>hashFn(String(v)),
+  list:(...items)=>items, len_list:l=>Array.isArray(l)?l.length:0,
+  get_list:(l,i)=>Array.isArray(l)?l[Number(i)]??null:null,
+  append:(l,v)=>[...(Array.isArray(l)?l:[]),v], prepend:(v,l)=>[v,...(Array.isArray(l)?l:[])],
+  slice_list:(l,i,j)=>Array.isArray(l)?l.slice(Number(i),Number(j)):[],
+  flatten:l=>Array.isArray(l)?l.flat(Infinity):[], reverse:l=>Array.isArray(l)?[...l].reverse():[],
+  sort_list:l=>Array.isArray(l)?[...l].sort():[], uniq:l=>[...new Set(Array.isArray(l)?l:[])],
+  sum:l=>Array.isArray(l)?l.reduce((a,b)=>Number(a)+Number(b),0):0,
+  product:l=>Array.isArray(l)?l.reduce((a,b)=>Number(a)*Number(b),1):1,
+  min_list:l=>Array.isArray(l)&&l.length?Math.min(...l.map(Number)):null,
+  max_list:l=>Array.isArray(l)&&l.length?Math.max(...l.map(Number)):null,
+  range:(f,t,s=1)=>{const r=[];for(let i=Number(f);i<Number(t);i+=Number(s))r.push(i);return r;},
+  map_new:()=>({}), get_map:(m,k)=>m?.[String(k)]??null,
+  put_map:(m,k,v)=>({...(m||{}),[String(k)]:v}), del_map:(m,k)=>{const o={...(m||{})};delete o[String(k)];return o;},
+  keys_map:m=>Object.keys(m||{}), vals_map:m=>Object.values(m||{}),
+  merge_map:(a,b)=>({...(a||{}),...(b||{})}), has_key:(m,k)=>Object.prototype.hasOwnProperty.call(m||{},String(k)),
+  json_encode:v=>JSON.stringify(v), json_decode:s=>{try{return JSON.parse(String(s));}catch{return null;}},
+  to_str:v=>String(v), to_num:v=>Number(v), to_bool:v=>Boolean(v),
+  type_of:v=>{if(v===null||v===undefined)return'null';if(Array.isArray(v))return'list';return typeof v;},
+  id:x=>x, noop:()=>null,
+};
+const ASYNC_OPS = new Set(['sha256']);
+
+// ── DagNode ──
+class DagNode {
+  constructor(type,value,deps=[],meta={}) {
+    this.type=type; this.value=value; this.deps=[...deps].sort(); this.hash=null;
+    this.op=meta.op??null; this.args=meta.args??[]; this.eventId=meta.eventId??null; this.source=meta.source??null;
+  }
+  async finalize() {
+    this.hash = await sha256(encodeNode(this.type,this.value,this.deps));
+    return this;
+  }
+  toJSON() { return {hash:this.hash,type:this.type,value:this.value,deps:this.deps,op:this.op,args:this.args,eventId:this.eventId,source:this.source}; }
+  static fromJSON(o) { const n=new DagNode(o.type,o.value,o.deps??[],{op:o.op,args:o.args,eventId:o.eventId,source:o.source}); n.hash=o.hash; return n; }
+}
+
+// ── DagStore ──
+class DagStore {
+  constructor() { this._nodes=new Map(); }
+  add(n) { if(n.hash&&!this._nodes.has(n.hash)) this._nodes.set(n.hash,n); return this; }
+  get(h) { return this._nodes.get(h)??null; }
+  has(h) { return this._nodes.has(h); }
+  size() { return this._nodes.size; }
+  all()  { return [...this._nodes.values()]; }
+  tips() {
+    const deps=new Set();
+    for(const n of this._nodes.values()) for(const d of n.deps) deps.add(d);
+    return [...this._nodes.keys()].filter(h=>!deps.has(h));
+  }
+  export(roots=null) {
+    const nodes = this.all().map(n=>n.toJSON());
+    return {version:2,nodes};
+  }
+}
+
+// ── Evaluator ──
+class Evaluator {
+  constructor(store,memo=null) { this.store=store; this._memo=memo??new Map(); }
+  async eval(op,args,meta={}) {
+    const fn=BUILTINS[op]; if(!fn) throw new Error(`Unknown op: '${op}'`);
+    const values=[],deps=[],rawArgs=[],argTypes=[];
+    for(const arg of args) {
+      if(arg&&typeof arg==='object'&&arg.hash) {
+        values.push(arg.value); deps.push(arg.hash); rawArgs.push(arg.hash); argTypes.push(arg.type);
+      } else { values.push(arg); rawArgs.push(arg); argTypes.push(inferType(arg)); }
+    }
+    const memoKey=op+'|'+rawArgs.map(a=>a&&typeof a==='object'?JSON.stringify(a):String(a)).join(',');
+    const cached=this._memo.get(memoKey);
+    if(cached&&this.store.has(cached.hash)) return cached;
+    const result = ASYNC_OPS.has(op) ? await fn(...values,sha256) : fn(...values);
+    const type=inferType(result);
+    const node=new DagNode(type,result,deps,{op,args:rawArgs,eventId:meta.eventId??null,source:'computation'});
+    await node.finalize();
+    this.store.add(node); this._memo.set(memoKey,node);
+    return node;
+  }
+  async literal(value,typeHint=null,meta={}) {
+    const type=typeHint??inferType(value);
+    const node=new DagNode(type,value,[],{source:'literal',eventId:meta.eventId??null});
+    await node.finalize(); this.store.add(node); return node;
+  }
+  async inject(type,value,deps=[],meta={}) {
+    const node=new DagNode(type,value,deps,{source:'effect',...meta});
+    await node.finalize(); this.store.add(node); return node;
+  }
+  stateRoots() { return this.store.tips(); }
+  get memo() { return this._memo; }
+}
+
+// ── Event / EventLog ──
+class MEvent {
+  constructor(op,inputs,meta={}) { this.operation=op; this.inputs=inputs; this.metadata=meta; this.hash=null; this.sequence=null; this.prevHash=null; }
+  async finalize(seq,prevHash=null) {
+    this.sequence=seq; this.prevHash=prevHash;
+    this.hash=await sha256(encodeEvent(this.operation,this.inputs,{...this.metadata,seq,prev:prevHash}));
+    return this;
+  }
+  toJSON() { return {hash:this.hash,sequence:this.sequence,prevHash:this.prevHash,operation:this.operation,inputs:this.inputs,metadata:this.metadata}; }
+  static fromJSON(o) { const e=new MEvent(o.operation,o.inputs,o.metadata); e.hash=o.hash; e.sequence=o.sequence; e.prevHash=o.prevHash; return e; }
+}
+class EventLog {
+  constructor(id='default') { this.logId=id; this._events=[]; this._byHash=new Map(); this.headHash=null; }
+  async append(op,inputs,meta={}) {
+    const e=new MEvent(op,inputs,meta);
+    await e.finalize(this._events.length,this.headHash);
+    this._events.push(e); this._byHash.set(e.hash,e); this.headHash=e.hash; return e;
+  }
+  at(i) { return this._events[i]??null; }
+  length() { return this._events.length; }
+  all() { return [...this._events]; }
+  async verify() {
+    let prev=null;
+    for(const ev of this._events) {
+      const expected=await sha256(encodeEvent(ev.operation,ev.inputs,{...ev.metadata,seq:ev.sequence,prev}));
+      if(expected!==ev.hash) return {ok:false,sequence:ev.sequence,reason:'hash mismatch'};
+      prev=ev.hash;
+    }
+    return {ok:true,length:this._events.length};
+  }
+  toJSON() { return {logId:this.logId,headHash:this.headHash,length:this._events.length,events:this._events.map(e=>e.toJSON())}; }
+  static fromJSON(o) { const log=new EventLog(o.logId); for(const ej of o.events??[]) { const e=MEvent.fromJSON(ej); log._events.push(e); log._byHash.set(e.hash,e); } log.headHash=o.headHash??null; return log; }
+}
+
+// ── SnapshotIndex ──
+class SnapshotIndex {
+  constructor() { this._snaps=[]; }
+  async record(version,roots,eventHash,seq) {
+    const encoded=encodeSnapshot(version,roots,{eventHash,seq});
+    const hash=await sha256(encoded);
+    const snap={version,roots,eventHash,seq,hash};
+    this._snaps.push(snap); return snap;
+  }
+  latest() { return this._snaps[this._snaps.length-1]??null; }
+  size() { return this._snaps.length; }
+  toJSON() { return {snapshots:this._snaps}; }
+  static fromJSON(o) { const s=new SnapshotIndex(); s._snaps=o.snapshots??[]; return s; }
+}
+
+// ── EffectHandler ──
+const EffectKind = Object.freeze({TIME:'time',RNG:'rng',HTTP:'http',FILE_READ:'file_read',FILE_WRITE:'file_write',AI:'ai',CUSTOM:'custom'});
+class EffectRequest {
+  constructor(kind,params,meta={}) { this.kind=kind; this.params=params; this.metadata=meta; this.hash=null; this.id=null; }
+  async finalize() { this.hash=await sha256(JSON.stringify({kind:this.kind,params:this.params})); this.id=this.hash.slice(0,16); return this; }
+  toJSON() { return {id:this.id,hash:this.hash,kind:this.kind,params:this.params,metadata:this.metadata}; }
+}
+class EffectResult {
+  constructor(effectHash,value,error=null) { this.effectHash=effectHash; this.value=value; this.error=error; this.timestamp=Date.now(); this.hash=null; }
+  async finalize() { this.hash=await sha256(JSON.stringify({effect:this.effectHash,value:this.value,error:this.error,ts:this.timestamp})); return this; }
+  toJSON() { return {hash:this.hash,effectHash:this.effectHash,value:this.value,error:this.error,timestamp:this.timestamp}; }
+}
+class EffectHandler {
+  constructor() { this._handlers=new Map(); this._cache=new Map(); this._log=[]; this._registerDefaults(); }
+  register(kind,handler) { this._handlers.set(kind,handler); return this; }
+  async resolve(request) {
+    if(!request.hash) await request.finalize();
+    const cached=this._cache.get(request.hash); if(cached) return cached;
+    const handler=this._handlers.get(request.kind);
+    if(!handler) throw new Error(`No handler for effect: ${request.kind}`);
+    let value,error=null;
+    try { value=await handler(request.params,request.metadata); } catch(err) { error=err.message; value=null; }
+    const result=new EffectResult(request.hash,value,error);
+    await result.finalize(); this._cache.set(request.hash,result);
+    this._log.push({request:request.toJSON(),result:result.toJSON()});
+    if(error) throw new Error(`Effect ${request.kind} failed: ${error}`);
+    return result;
+  }
+  seed(hash,value) { const r=new EffectResult(hash,value); this._cache.set(hash,r); return this; }
+  get log() { return [...this._log]; }
+  _registerDefaults() {
+    this.register(EffectKind.TIME,async()=>({now:Date.now(),iso:new Date().toISOString()}));
+    this.register(EffectKind.RNG,async()=>({value:Math.random(),int32:Math.floor(Math.random()*0xFFFFFFFF)}));
+    this.register(EffectKind.HTTP,async({url,method='GET'}={})=>{
+      const res=await fetch(url,{method}).catch(e=>({ok:false,status:0,text:async()=>e.message}));
+      return {status:res.status,ok:res.ok,body:await res.text()};
+    });
+    this.register(EffectKind.AI,async({prompt}={})=>({result:`[AI: "${prompt}"]`,tokens:42}));
+    this.register(EffectKind.CUSTOM,async(params)=>({...params,processed:true}));
+  }
+}
+
+// ── StateMachine ──
+class StateMachine {
+  constructor(opts={}) {
+    this.dagStore=new DagStore(); this.eventLog=new EventLog(opts.logId??'runtime');
+    this.snapshots=new SnapshotIndex(); this.effectHandler=opts.effectHandler??new EffectHandler();
+    this._memo=new Map(); this.evaluator=new Evaluator(this.dagStore,this._memo);
+    this._version=0; this._listeners=[];
+  }
+  async process(op,inputs=[],meta={}) {
+    const event=await this.eventLog.append(op,inputs,meta);
+    this._emit('event',event);
+    let resultNode,evalError;
+    try { resultNode=await this.evaluator.eval(op,inputs,{eventId:event.hash}); } catch(err) { evalError=err; }
+    if(evalError) { this._emit('error',{event,error:evalError.message}); return {event,error:evalError.message,snapshot:null}; }
+    const roots=this.evaluator.stateRoots();
+    this._version++;
+    const snapshot=await this.snapshots.record(this._version,roots,event.hash,event.sequence);
+    this._emit('snapshot',snapshot);
+    const out={event,result:resultNode,snapshot};
+    this._emit('processed',out); return out;
+  }
+  async effect(kind,params,meta={}) {
+    const request=new EffectRequest(kind,params,meta);
+    await request.finalize();
+    const result=await this.effectHandler.resolve(request);
+    const node=await this.evaluator.inject(inferType(result.value),result.value,[],{op:`effect:${kind}`,source:'effect',eventId:request.hash});
+    return {request,result,node};
+  }
+  async verify() {
+    const logR=await this.eventLog.verify();
+    return {eventLog:logR,ok:logR.ok};
+  }
+  toBundle() {
+    return {version:2,eventLog:this.eventLog.toJSON(),dagNodes:this.dagStore.export(),snapshots:this.snapshots.toJSON()};
+  }
+  info() {
+    return {dagNodes:this.dagStore.size(),events:this.eventLog.length(),snapshots:this.snapshots.size(),headEvent:this.eventLog.headHash,memoSize:this._memo.size};
+  }
+  on(type,h) { this._listeners.push({type,h}); return ()=>{ this._listeners=this._listeners.filter(l=>l.h!==h); }; }
+  _emit(type,data) { for(const l of this._listeners) { if(l.type===type||l.type==='*') try{l.h(data);}catch{} } }
+}
+
+// ── Runtime ──
+class Runtime {
+  constructor(opts={}) { this._machine=new StateMachine({logId:opts.id??'runtime',effectHandler:new EffectHandler()}); }
+  async process(op,args=[],meta={}) { return this._machine.process(op,args,meta); }
+  async effect(kind,params={},meta={}) { return this._machine.effect(kind,params,meta); }
+  async verify() { return this._machine.verify(); }
+  export() { return {schema:'merkem@2',exported:Date.now(),...this._machine.toBundle()}; }
+  info() { return this._machine.info(); }
+  on(type,h) { return this._machine.on(type,h); }
+  get dagStore() { return this._machine.dagStore; }
+}
+
+// ── Bundle verify ──
+async function verifyBundle(bundle,fullReexec=false) {
+  const nodes=bundle.dagNodes?.nodes??[];
+  const errors=[]; const stats={total:nodes.length,hashVerified:0,reexecuted:0};
+  if(fullReexec) {
+    const store=new DagStore(); const ev=new Evaluator(store);
+    const sorted=topoSort(nodes);
+    for(const n of sorted) {
+      const isBuiltin=n.op&&!n.op.startsWith('effect:')&&!n.op.startsWith('wasm:');
+      if(isBuiltin) {
+        const resolvedArgs=(n.args??[]).map(a=>typeof a==='string'&&/^[0-9a-f]{64}$/.test(a)?store.get(a)??a:a);
+        let replayed;
+        try { replayed=await ev.eval(n.op,resolvedArgs); } catch(err) { errors.push({hash:n.hash,reason:`re-exec '${n.op}' failed: ${err.message}`}); continue; }
+        if(replayed.hash!==n.hash) errors.push({hash:n.hash,reason:`hash mismatch after re-exec '${n.op}'`});
+        stats.reexecuted++;
+      } else {
+        const rc=await sha256(encodeNode(n.type,n.value,n.deps??[]));
+        if(rc!==n.hash) errors.push({hash:n.hash,reason:`hash mismatch for ${n.op??'literal'}`});
+        store.add(DagNode.fromJSON(n)); stats.hashVerified++;
+      }
+    }
+  } else {
+    for(const n of nodes) {
+      const rc=await sha256(encodeNode(n.type,n.value,n.deps??[]));
+      if(rc!==n.hash) errors.push({hash:n.hash,reason:`hash mismatch for ${n.op??'literal'}`});
+      stats.hashVerified++;
+    }
+  }
+  return {ok:errors.length===0,stats,errors};
+}
+function topoSort(nodes) {
+  const byHash=new Map(nodes.map(n=>[n.hash,n]));
+  const inDeg=new Map(nodes.map(n=>[n.hash,0]));
+  const children=new Map(nodes.map(n=>[n.hash,[]]));
+  for(const n of nodes) for(const d of (n.deps??[])) {
+    if(!byHash.has(d)) continue;
+    inDeg.set(n.hash,(inDeg.get(n.hash)??0)+1);
+    children.get(d).push(n.hash);
+  }
+  const queue=[...inDeg.entries()].filter(([,d])=>d===0).map(([h])=>h);
+  const result=[];
+  while(queue.length) {
+    const h=queue.shift(); const node=byHash.get(h); if(node) result.push(node);
+    for(const child of (children.get(h)??[])) { const d=(inDeg.get(child)??0)-1; inDeg.set(child,d); if(d===0) queue.push(child); }
+  }
+  return result;
+}
+
+// ══════════════════════════════════════════════════════════
+// APP STATE
+// ══════════════════════════════════════════════════════════
+
+let rt = new Runtime({id:'playground'});
+let currentBundle = null;
+let replayEvents = [];
+let replayPos = 0;
+
+const PRESETS = [
+  {label:'arithmetic',wf:{id:'arithmetic',steps:[{op:'add',args:[10,32]},{op:'mul',args:[6,7]},{op:'pow',args:[2,10]}]}},
+  {label:'strings',wf:{id:'strings',steps:[{op:'upper',args:['hello merkem']},{op:'concat',args:['proof-','bundle']},{op:'len',args:['deterministic']}]}},
+  {label:'list ops',wf:{id:'lists',steps:[{op:'range',args:[1,11]},{op:'sum',args:[[1,2,3,4,5,6,7,8,9,10]]},{op:'reverse',args:[[10,20,30,40,50]]}]}},
+  {label:'crypto',wf:{id:'crypto',steps:[{op:'sha256',args:['hello world']},{op:'sha256',args:['merkem rocks']},{op:'sha256',args:['deterministic truth']}]}},
+  {label:'map ops',wf:{id:'maps',steps:[{op:'map_new',args:[]},{op:'put_map',args:[{},'name','merkem']},{op:'put_map',args:[{},'version','0.1.0']}]}},
+  {label:'boolean',wf:{id:'booleans',steps:[{op:'and',args:[true,true]},{op:'or',args:[false,true]},{op:'not',args:[false]},{op:'xor',args:[true,false]}]}},
+];
+
+// ══════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════
+
+function shortHash(h) { return h ? h.slice(0,8)+'…'+h.slice(-4) : '—'; }
+function fmtVal(v) {
+  if(v===null||v===undefined) return 'null';
+  if(typeof v==='string' && v.length>60) return '"'+v.slice(0,57)+'…"';
+  if(typeof v==='string') return '"'+v+'"';
+  if(Array.isArray(v)) return '['+v.slice(0,6).join(', ')+(v.length>6?', …':'')+']';
+  if(typeof v==='object') return '{'+Object.keys(v).slice(0,4).join(', ')+(Object.keys(v).length>4?', …':'')+'}';
+  return String(v);
+}
+
+function toast(msg, type='') {
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className='toast '+(type?type:'');
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2800);
+}
+
+function setStatus(label, running=false) {
+  document.getElementById('status-label').textContent=label;
+  const dot=document.getElementById('status-dot');
+  dot.style.background = running ? 'var(--amber)' : 'var(--green)';
+  dot.className = running ? 'status-dot running-indicator' : 'status-dot';
+}
+
+// ══════════════════════════════════════════════════════════
+// MAIN TABS
+// ══════════════════════════════════════════════════════════
+
+document.getElementById('main-tabs').addEventListener('click', e=>{
+  const tab = e.target.dataset.tab; if(!tab) return;
+  document.querySelectorAll('.tab-top').forEach(t=>t.classList.toggle('active', t.dataset.tab===tab));
+  document.querySelectorAll('.workspace').forEach(w=>w.classList.toggle('active', w.id==='tab-'+tab));
+  if(tab==='replay') refreshReplayTab();
+  if(tab==='dag') drawDag();
+});
+
+// Output sub-tabs
+document.querySelectorAll('.output-tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    const out=t.dataset.out;
+    document.querySelectorAll('.output-tab').forEach(x=>x.classList.toggle('active',x===t));
+    document.querySelectorAll('.output-pane').forEach(p=>p.classList.toggle('active',p.id==='out-'+out));
+    if(out==='dag') setTimeout(drawDag,50);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// WORKFLOW EDITOR + PRESETS
+// ══════════════════════════════════════════════════════════
+
+const editor = document.getElementById('workflow-editor');
+const presetsEl = document.getElementById('presets');
+PRESETS.forEach(p=>{
+  const btn=document.createElement('button');
+  btn.className='preset-btn'; btn.textContent=p.label;
+  btn.onclick=()=>{ editor.value=JSON.stringify(p.wf,null,2); };
+  presetsEl.appendChild(btn);
+});
+editor.value = JSON.stringify(PRESETS[0].wf, null, 2);
+
+// ══════════════════════════════════════════════════════════
+// EFFECT BUTTONS
+// ══════════════════════════════════════════════════════════
+
+const effects = [
+  {kind:'time', label:'time.now()', desc:'wall clock timestamp'},
+  {kind:'rng',  label:'random()',   desc:'random number'},
+  {kind:'ai',   label:'ai.infer()', desc:'AI inference'},
+  {kind:'custom',label:'custom()',  desc:'custom effect call'},
+];
+const effectGrid = document.getElementById('effect-grid');
+effects.forEach(({kind,label,desc})=>{
+  const card=document.createElement('div');
+  card.className='effect-card';
+  card.innerHTML=`<div class="ek">${label}</div><div class="ev">${desc}</div>`;
+  card.onclick=async()=>{
+    setStatus('effect…',true);
+    try {
+      const params = kind==='ai' ? {prompt:'what is determinism?'} : kind==='custom' ? {key:'demo',value:42} : {};
+      const out = await rt.effect(kind, params);
+      const val = fmtVal(out.result.value);
+      addEventRow({operation:`effect:${kind}`,sequence:rt.info().events-1,hash:out.request.hash,resultValue:val,source:'effect'});
+      updateRuntimeInfo(); updateBundle();
+      toast(`effect:${kind} → ${val}`, 'success');
+    } catch(err) { toast(err.message,'error'); }
+    setStatus('ready');
+  };
+  effectGrid.appendChild(card);
+});
+
+// ══════════════════════════════════════════════════════════
+// RUN
+// ══════════════════════════════════════════════════════════
+
+document.getElementById('run-btn').addEventListener('click', async()=>{
+  let wf;
+  try { wf=JSON.parse(editor.value); } catch(e) { toast('Invalid JSON: '+e.message,'error'); return; }
+  const steps=wf.steps??[];
+  if(!steps.length) { toast('No steps defined','error'); return; }
+
+  const btn=document.getElementById('run-btn');
+  btn.disabled=true; btn.textContent='⟳ running…';
+  setStatus('running…',true);
+  clearEvents();
+
+  const startMs=Date.now();
+  try {
+    for(const step of steps) {
+      const {op,args=[],meta={}}=step;
+      const out=await rt.process(op,args,{...meta,workflow:wf.id??'run'});
+      if(out.error) {
+        addEventRow({operation:op,sequence:out.event?.sequence,hash:out.event?.hash,error:out.error});
+      } else {
+        addEventRow({operation:op,sequence:out.event?.sequence,hash:out.event?.hash,resultValue:fmtVal(out.result?.value),source:'computation'});
+      }
+    }
+    const elapsed=Date.now()-startMs;
+    toast(`✓ ${steps.length} steps in ${elapsed}ms`,'success');
+    updateBundle(); updateRuntimeInfo(); updateReplayEvents();
+    setStatus(`${rt.info().events} events`);
+  } catch(err) { toast(err.message,'error'); setStatus('error'); }
+  btn.disabled=false; btn.textContent='▶ run';
+});
+
+document.getElementById('commit-btn').addEventListener('click', async()=>{
+  toast('committed (no-op — stateless browser runtime)');
+});
+
+document.getElementById('clear-btn').addEventListener('click', ()=>{
+  rt = new Runtime({id:'playground'});
+  currentBundle=null; replayEvents=[]; replayPos=0;
+  clearEvents(); clearBundle(); updateRuntimeInfo(); updateReplayTab();
+  setStatus('ready');
+  toast('runtime reset');
+});
+
+// ══════════════════════════════════════════════════════════
+// EVENT LOG RENDERING
+// ══════════════════════════════════════════════════════════
+
+function clearEvents() {
+  document.getElementById('events-empty').style.display='flex';
+  document.getElementById('events-list').style.display='none';
+  document.getElementById('events-list').innerHTML='';
+}
+
+function addEventRow({operation,sequence,hash,resultValue,error,source}) {
+  const empty=document.getElementById('events-empty');
+  const list=document.getElementById('events-list');
+  empty.style.display='none'; list.style.display='block';
+  const row=document.createElement('div'); row.className='event-item';
+  const srcBadge = source==='effect' ? `<span class="badge badge-amber">effect</span>` : '';
+  row.innerHTML=`
+    <span class="ev-seq">${sequence??'?'}</span>
+    <div style="flex:1">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span class="ev-op">${operation}</span>
+        ${srcBadge}
+        ${error ? `<span class="ev-result ev-error">${error}</span>` : `<span class="ev-result">${resultValue??''}</span>`}
+      </div>
+      <div class="ev-hash">${shortHash(hash)}</div>
+    </div>`;
+  list.appendChild(row);
+  list.scrollTop=list.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════════════
+// BUNDLE PANEL
+// ══════════════════════════════════════════════════════════
+
+function clearBundle() {
+  document.getElementById('bundle-empty').style.display='flex';
+  document.getElementById('bundle-content').style.display='none';
+  document.getElementById('raw-empty').style.display='flex';
+  document.getElementById('raw-json').style.display='none';
+  currentBundle=null;
+}
+
+function updateBundle() {
+  currentBundle = rt.export();
+  const nodes = currentBundle.dagNodes?.nodes??[];
+  const events = currentBundle.eventLog?.events??[];
+  const snaps = currentBundle.snapshots?.snapshots??[];
+
+  document.getElementById('bundle-empty').style.display='none';
+  const bc=document.getElementById('bundle-content');
+  bc.style.display='block';
+
+  // Group nodes by op
+  const byType={};
+  for(const n of nodes) { const k=n.op??n.source??'literal'; byType[k]=(byType[k]??0)+1; }
+
+  bc.innerHTML=`
+    <div class="proof-section">
+      <div class="proof-section-title">bundle metadata</div>
+      <div class="kv-row"><span class="kv-key">schema</span><span class="kv-val">${currentBundle.schema}</span></div>
+      <div class="kv-row"><span class="kv-key">exported</span><span class="kv-val">${new Date(currentBundle.exported).toISOString()}</span></div>
+      <div class="kv-row"><span class="kv-key">head event</span><span class="kv-val hash">${shortHash(currentBundle.eventLog?.headHash)}</span></div>
+    </div>
+    <div class="proof-section">
+      <div class="proof-section-title">dag nodes (${nodes.length})</div>
+      ${nodes.slice(0,20).map(n=>`
+        <div class="node-row">
+          <span class="node-type">${n.type}</span>
+          <span class="node-op">${(n.op??n.source??'lit').slice(0,14)}</span>
+          <span class="node-val">${fmtVal(n.value)}</span>
+          <span class="node-hash">${shortHash(n.hash)}</span>
+        </div>`).join('')}
+      ${nodes.length>20?`<div style="color:var(--text3);font-family:var(--mono);font-size:10px;padding:4px 0;">… and ${nodes.length-20} more</div>`:''}
+    </div>
+    <div class="proof-section">
+      <div class="proof-section-title">event log (${events.length})</div>
+      ${events.slice(0,10).map(e=>`
+        <div class="node-row">
+          <span class="node-type" style="color:var(--cyan);">[${e.sequence}]</span>
+          <span class="node-op">${e.operation}</span>
+          <span class="node-val">${JSON.stringify(e.inputs).slice(0,40)}</span>
+          <span class="node-hash">${shortHash(e.hash)}</span>
+        </div>`).join('')}
+      ${events.length>10?`<div style="color:var(--text3);font-family:var(--mono);font-size:10px;padding:4px 0;">… and ${events.length-10} more</div>`:''}
+    </div>
+    <div class="proof-section">
+      <div class="proof-section-title">snapshots (${snaps.length})</div>
+      ${snaps.slice(0,6).map(s=>`
+        <div class="node-row">
+          <span class="node-type" style="color:var(--purple);">v${s.version}</span>
+          <span class="node-op">seq ${s.seq??'?'}</span>
+          <span class="node-val">${(s.roots??[]).length} root(s)</span>
+          <span class="node-hash">${shortHash(s.hash)}</span>
+        </div>`).join('')}
+    </div>
+    <div style="margin-top:8px;">
+      <button class="btn btn-ghost" onclick="downloadBundle()" style="font-size:10px;padding:4px 10px;">⬇ download .json</button>
+      <button class="btn btn-ghost" onclick="loadVerify()" style="font-size:10px;padding:4px 10px;margin-left:6px;">→ verify</button>
+    </div>`;
+
+  // raw json
+  document.getElementById('raw-empty').style.display='none';
+  const raw=document.getElementById('raw-json');
+  raw.style.display='block';
+  raw.textContent=JSON.stringify(currentBundle,null,2);
+}
+
+window.downloadBundle = function() {
+  if(!currentBundle) return;
+  const blob=new Blob([JSON.stringify(currentBundle,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='merkem-bundle.json'; a.click();
+  toast('bundle downloaded');
+};
+
+window.loadVerify = function() {
+  if(!currentBundle) return;
+  document.getElementById('verify-input').value=JSON.stringify(currentBundle,null,2);
+  document.querySelectorAll('.tab-top').forEach(t=>t.classList.toggle('active',t.dataset.tab==='verify'));
+  document.querySelectorAll('.workspace').forEach(w=>w.classList.toggle('active',w.id==='tab-verify'));
+};
+
+// ══════════════════════════════════════════════════════════
+// RUNTIME INFO PANEL
+// ══════════════════════════════════════════════════════════
+
+function updateRuntimeInfo() {
+  const info=rt.info();
+  document.getElementById('runtime-info-content').innerHTML=`
+    <div class="kv-row"><span class="kv-key">dag nodes</span><span class="kv-val">${info.dagNodes}</span></div>
+    <div class="kv-row"><span class="kv-key">events</span><span class="kv-val">${info.events}</span></div>
+    <div class="kv-row"><span class="kv-key">snapshots</span><span class="kv-val">${info.snapshots}</span></div>
+    <div class="kv-row"><span class="kv-key">memo cache</span><span class="kv-val">${info.memoSize}</span></div>
+    <div class="kv-row"><span class="kv-key">head</span><span class="kv-val hash">${shortHash(info.headEvent)}</span></div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// DAG CANVAS
+// ══════════════════════════════════════════════════════════
+
+function drawDag() {
+  const canvas=document.getElementById('dag-canvas');
+  if(!currentBundle) return;
+  const nodes=(currentBundle.dagNodes?.nodes??[]).slice(0,80);
+  if(!nodes.length) return;
+
+  const container=canvas.parentElement;
+  canvas.width=container.clientWidth||600;
+  canvas.height=container.clientHeight||400;
+  const W=canvas.width, H=canvas.height;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+
+  // Assign levels via topo
+  const byHash=new Map(nodes.map(n=>[n.hash,n]));
+  const level=new Map(nodes.map(n=>[n.hash,0]));
+  const sorted=topoSort(nodes);
+  for(const n of sorted) {
+    let maxParent=-1;
+    for(const dep of (n.deps??[])) { if(level.has(dep)) maxParent=Math.max(maxParent,level.get(dep)); }
+    level.set(n.hash,maxParent+1);
+  }
+  const maxLevel=Math.max(...[...level.values()]);
+  const byLevel=new Map();
+  for(const n of nodes) {
+    const lv=level.get(n.hash)??0;
+    if(!byLevel.has(lv)) byLevel.set(lv,[]);
+    byLevel.get(lv).push(n);
+  }
+
+  // Layout
+  const positions=new Map();
+  const nodeW=72, nodeH=32, hGap=16, vGap=50;
+  const levels=[...byLevel.entries()].sort((a,b)=>a[0]-b[0]);
+  let totalH=levels.length*(nodeH+vGap)-vGap;
+  let startY=(H-totalH)/2;
+  for(const [lv,ns] of levels) {
+    const rowW=ns.length*(nodeW+hGap)-hGap;
+    let x=(W-rowW)/2;
+    const y=startY+lv*(nodeH+vGap);
+    for(const n of ns) {
+      positions.set(n.hash,{x,y,w:nodeW,h:nodeH,n});
+      x+=nodeW+hGap;
+    }
+  }
+
+  // Draw edges
+  ctx.strokeStyle='#2a2a3a';
+  ctx.lineWidth=1;
+  for(const n of nodes) {
+    const to=positions.get(n.hash); if(!to) continue;
+    for(const dep of (n.deps??[])) {
+      const from=positions.get(dep); if(!from) continue;
+      ctx.beginPath();
+      ctx.moveTo(from.x+from.w/2, from.y+from.h);
+      ctx.bezierCurveTo(from.x+from.w/2, from.y+from.h+vGap*.4, to.x+to.w/2, to.y-vGap*.4, to.x+to.w/2, to.y);
+      ctx.stroke();
+    }
+  }
+
+  // Draw nodes
+  for(const [hash,{x,y,w,h,n}] of positions) {
+    const isEffect=n.op?.startsWith('effect:');
+    const isLiteral=n.source==='literal';
+    ctx.beginPath();
+    ctx.roundRect(x,y,w,h,5);
+    ctx.fillStyle= isEffect ? '#1a1228' : isLiteral ? '#0d1818' : '#0e101e';
+    ctx.fill();
+    ctx.strokeStyle= isEffect ? '#5540aa' : isLiteral ? '#1e4040' : '#1e2550';
+    ctx.lineWidth=1;
+    ctx.stroke();
+
+    ctx.fillStyle= isEffect ? '#a78bfa' : isLiteral ? '#38bdf8' : '#5b8af0';
+    ctx.font='500 9px IBM Plex Mono, monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    const label=(n.op??n.source??'').slice(0,10);
+    ctx.fillText(label, x+w/2, y+h/2-5);
+    ctx.fillStyle='#9090b0';
+    ctx.font='9px IBM Plex Mono, monospace';
+    ctx.fillText(fmtVal(n.value).slice(0,10), x+w/2, y+h/2+6);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// REPLAY TAB
+// ══════════════════════════════════════════════════════════
+
+function updateReplayEvents() {
+  if(!currentBundle) return;
+  replayEvents=currentBundle.eventLog?.events??[];
+  replayPos=0;
+  updateReplayUI();
+}
+
+function updateReplayTab() {
+  const log=document.getElementById('replay-log');
+  const slider=document.getElementById('replay-slider');
+  if(!replayEvents.length) {
+    log.innerHTML='<div class="empty-state">run a workflow first, then replay here</div>';
+    slider.max=0; slider.value=0;
+    document.getElementById('replay-seq').textContent='event 0 / 0';
+    document.getElementById('replay-state-content').innerHTML='';
+    return;
+  }
+  updateReplayUI();
+}
+
+function refreshReplayTab() {
+  if(currentBundle) updateReplayEvents();
+  else updateReplayTab();
+}
+
+function updateReplayUI() {
+  const slider=document.getElementById('replay-slider');
+  slider.max=Math.max(0,replayEvents.length-1);
+  slider.value=replayPos;
+  document.getElementById('replay-seq').textContent=`event ${replayPos+1} / ${replayEvents.length}`;
+  renderReplayLog();
+  renderReplayState();
+}
+
+function renderReplayLog() {
+  const log=document.getElementById('replay-log');
+  if(!replayEvents.length) { log.innerHTML='<div class="empty-state">no events</div>'; return; }
+  log.innerHTML=replayEvents.map((e,i)=>`
+    <div class="event-item ${i===replayPos?'ev-highlight':''}">
+      <span class="ev-seq">${e.sequence}</span>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="ev-op">${e.operation}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text2);">${JSON.stringify(e.inputs).slice(0,40)}</span>
+        </div>
+        <div class="ev-hash">${shortHash(e.hash)}</div>
+      </div>
+    </div>`).join('');
+  const highlighted=log.querySelector('.ev-highlight');
+  if(highlighted) highlighted.scrollIntoView({block:'nearest'});
+}
+
+function renderReplayState() {
+  const sc=document.getElementById('replay-state-content');
+  const ev=replayEvents[replayPos];
+  if(!ev) { sc.innerHTML=''; return; }
+
+  // Find matching dag node
+  const matchingNodes=(currentBundle?.dagNodes?.nodes??[]).filter(n=>n.eventId===ev.hash);
+  sc.innerHTML=`
+    <div class="kv-row"><span class="kv-key">operation</span><span class="kv-val" style="color:var(--cyan);">${ev.operation}</span></div>
+    <div class="kv-row"><span class="kv-key">inputs</span><span class="kv-val">${JSON.stringify(ev.inputs)}</span></div>
+    <div class="kv-row"><span class="kv-key">event hash</span><span class="kv-val hash">${shortHash(ev.hash)}</span></div>
+    <div class="kv-row"><span class="kv-key">prev hash</span><span class="kv-val hash">${shortHash(ev.prevHash)}</span></div>
+    <div class="kv-row"><span class="kv-key">sequence</span><span class="kv-val">${ev.sequence}</span></div>
+    ${matchingNodes.length?`<hr class="divider"><div class="section-label" style="margin-top:4px;">dag nodes at this event</div>${matchingNodes.map(n=>`
+    <div class="node-row">
+      <span class="node-type">${n.type}</span>
+      <span class="node-op">${n.op??'lit'}</span>
+      <span class="node-val">${fmtVal(n.value)}</span>
+      <span class="node-hash">${shortHash(n.hash)}</span>
+    </div>`).join('')}`:''}`;
+}
+
+document.getElementById('replay-slider').addEventListener('input',e=>{
+  replayPos=parseInt(e.target.value); updateReplayUI();
+});
+document.getElementById('replay-prev').addEventListener('click',()=>{
+  if(replayPos>0) { replayPos--; updateReplayUI(); }
+});
+document.getElementById('replay-next').addEventListener('click',()=>{
+  if(replayPos<replayEvents.length-1) { replayPos++; updateReplayUI(); }
+});
+
+document.getElementById('replay-all-btn').addEventListener('click', async()=>{
+  if(!replayEvents.length) { toast('no events to replay','error'); return; }
+  setStatus('replaying…',true);
+  const btn=document.getElementById('replay-all-btn');
+  btn.disabled=true; btn.textContent='⟳ replaying…';
+  await new Promise(r=>setTimeout(r,50));
+  for(let i=0;i<replayEvents.length;i++) {
+    replayPos=i; updateReplayUI();
+    await new Promise(r=>setTimeout(r,120));
+  }
+  btn.disabled=false; btn.textContent='replay all';
+  setStatus(`${replayEvents.length} events replayed`);
+  toast(`✓ replayed ${replayEvents.length} events deterministically`,'success');
+});
+
+// ══════════════════════════════════════════════════════════
+// VERIFY TAB
+// ══════════════════════════════════════════════════════════
+
+document.getElementById('verify-load-current').addEventListener('click',()=>{
+  if(!currentBundle) { toast('run a workflow first','error'); return; }
+  document.getElementById('verify-input').value=JSON.stringify(currentBundle,null,2);
+});
+
+document.getElementById('verify-btn').addEventListener('click', async()=>{
+  const input=document.getElementById('verify-input').value.trim();
+  if(!input) { toast('paste a bundle first','error'); return; }
+  let bundle;
+  try { bundle=JSON.parse(input); } catch(e) { toast('Invalid JSON: '+e.message,'error'); return; }
+  const fullReexec=document.getElementById('verify-full').checked;
+  const btn=document.getElementById('verify-btn');
+  btn.disabled=true; btn.textContent='⟳ verifying…';
+  setStatus('verifying…',true);
+  const results=document.getElementById('verify-results');
+  results.innerHTML='<div style="color:var(--text3);font-family:var(--mono);font-size:11px;">verifying…</div>';
+  try {
+    const res=await verifyBundle(bundle,fullReexec);
+    const logRes=bundle.eventLog ? await (async()=>{
+      const log=EventLog.fromJSON(bundle.eventLog);
+      return log.verify();
+    })() : {ok:true,length:0};
+
+    results.innerHTML=`
+      <div class="verify-result ${res.ok&&logRes.ok?'verify-ok':'verify-fail'}">
+        <div class="verify-title">${res.ok&&logRes.ok?'✓ bundle verified':'✗ verification failed'}</div>
+        <div class="verify-stat">nodes: ${res.stats.total} | hash-verified: ${res.stats.hashVerified} | re-executed: ${res.stats.reexecuted}</div>
+        <div class="verify-stat">event log: ${logRes.ok?'✓ intact':'✗ tampered'} (${logRes.length??0} events)</div>
+        <div class="verify-stat">mode: ${fullReexec?'full re-execution':'hash verify'}</div>
+      </div>
+      ${res.errors.length?`<div class="proof-section"><div class="proof-section-title">errors (${res.errors.length})</div>${res.errors.slice(0,10).map(e=>`<div class="kv-row"><span class="kv-val ev-error">${e.reason}</span></div>`).join('')}</div>`:''}
+      ${res.ok&&logRes.ok?`<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:10px;">all ${res.stats.total} dag nodes are cryptographically intact.<br>execution is deterministically replayable.</div>`:''}`;
+    toast(res.ok?'✓ verified':'✗ verification failed', res.ok?'success':'error');
+  } catch(err) { results.innerHTML=`<div class="verify-result verify-fail"><div class="verify-title">✗ error</div><div class="verify-stat">${err.message}</div></div>`; }
+  btn.disabled=false; btn.textContent='verify bundle';
+  setStatus('ready');
+});
+
+// ══════════════════════════════════════════════════════════
+// DOCS
+// ══════════════════════════════════════════════════════════
+
+document.getElementById('docs-content').innerHTML=`
+<div class="docs-h1">merkem</div>
+<div class="docs-sub">deterministic replayable compute runtime — browser playground</div>
+
+<div class="docs-h2">what is merkem?</div>
+<div class="docs-p">Every operation produces a content-addressed DAG node. Every execution is replayable. Every output is cryptographically verifiable. The core idea: <strong style="color:var(--text)">execution → proof bundle</strong>.</div>
+
+<div class="docs-h2">workflow format</div>
+<div class="docs-code">{
+  "id": "my-workflow",
+  "steps": [
+    { "op": "add",    "args": [2, 3] },
+    { "op": "concat", "args": ["hello", " world"] },
+    { "op": "sha256", "args": ["deterministic truth"] }
+  ]
+}</div>
+
+<div class="docs-h2">builtin ops</div>
+<table class="docs-table">
+  <tr><th>category</th><th>ops</th></tr>
+  <tr><td>arithmetic</td><td>add sub mul div mod abs neg pow floor ceil round min max clamp</td></tr>
+  <tr><td>comparison</td><td>eq neq lt gt lte gte</td></tr>
+  <tr><td>boolean</td><td>not and or xor ifelse</td></tr>
+  <tr><td>string</td><td>concat len upper lower trim starts_with ends_with includes replace split slice_str</td></tr>
+  <tr><td>crypto</td><td>sha256</td></tr>
+  <tr><td>list</td><td>list append prepend slice_list flatten reverse sort_list uniq sum product min_list max_list range</td></tr>
+  <tr><td>map</td><td>map_new get_map put_map del_map keys_map vals_map merge_map has_key</td></tr>
+  <tr><td>json</td><td>json_encode json_decode</td></tr>
+  <tr><td>coercion</td><td>to_str to_num to_bool type_of is_null is_num is_str is_bool is_list is_map</td></tr>
+</table>
+
+<div class="docs-h2">effect kinds</div>
+<table class="docs-table">
+  <tr><th>kind</th><th>description</th></tr>
+  <tr><td>time</td><td>wall clock timestamp — non-deterministic at execution, frozen in proof</td></tr>
+  <tr><td>rng</td><td>random number — captured in effect log, deterministic on replay</td></tr>
+  <tr><td>http</td><td>HTTP request — response becomes part of the proof</td></tr>
+  <tr><td>ai</td><td>AI inference — model + prompt + output become the proof object</td></tr>
+  <tr><td>custom</td><td>arbitrary effect — declare, execute, receipt, prove</td></tr>
+</table>
+
+<div class="docs-h2">the proof bundle</div>
+<div class="docs-p">After execution, every operation, its inputs, and its outputs are packed into a portable JSON bundle with schema <code style="font-family:var(--mono);color:var(--accent)">merkem@2</code>. Any node can independently verify the bundle by re-hashing every DAG node. With full re-execution mode, every pure builtin is re-run from scratch and the output hashes are compared.</div>
+
+<div class="docs-h2">determinism principle</div>
+<div class="docs-code">S(n+1) = f(S(n), E(n))
+
+workflow + inputs + deterministic env + effect receipts
+─────────────────────────────────────────────────────────
+= immutable execution identity (content-addressed)</div>
+
+<div class="docs-h2">architecture layers</div>
+<div class="docs-code">Layer 1  — Core       : hash, canonical, types
+Layer 2  — DAG        : DagNode, DagStore, CommitLog
+Layer 3  — Events     : EventLog (append-only, hash-linked)
+Layer 4  — Exec       : Evaluator (memoized), Scheduler (parallel DAG)
+Layer 5  — Effects    : EffectRequest → EffectResult → DagNode
+Layer 6  — Machine    : StateMachine  S(n+1) = f(Sn, En)
+Layer 7  — Net        : SyncProtocol, BloomFilter, WantList
+Layer 8  — API        : Runtime, exportBundle, verifyBundle</div>
+
+<div class="docs-h2">replay</div>
+<div class="docs-p">The event log is an append-only, hash-linked chain. To replay: apply each event E₀…Eₙ against a fresh Evaluator. Pure builtins are deterministic — same inputs always produce same outputs and therefore the same content hash. Effects are replayed from their cached receipts in the bundle.</div>`;
+
+
+
+// ══════════════════════════════════════════════════════════
+// DISTRIBUTED VM — peer simulation, gossip, consensus, DAG sync
+// ══════════════════════════════════════════════════════════
+
+// ── Peer roles ──
+const PeerRole = { COORDINATOR: 'coordinator', WORKER: 'worker', VALIDATOR: 'validator' };
+const PeerState = { ONLINE: 'online', SYNCING: 'syncing', OFFLINE: 'offline', SELF: 'self' };
+
+// ── Message types (gossip protocol) ──
+const MsgType = {
+  HELLO:        'hello',
+  DAG_HAVE:     'dag_have',
+  DAG_WANT:     'dag_want',
+  DAG_PUSH:     'dag_push',
+  TASK_SUBMIT:  'task_submit',
+  TASK_ASSIGN:  'task_assign',
+  TASK_RESULT:  'task_result',
+  TASK_VERIFY:  'task_verify',
+  PROPOSE:      'propose',
+  PREVOTE:      'prevote',
+  PRECOMMIT:    'precommit',
+  COMMIT:       'commit',
+  HEARTBEAT:    'heartbeat',
+  FAULT:        'fault',
+};
+
+// ── NetworkBus: simulated message bus ──
+class NetworkBus {
+  constructor() {
+    this._handlers = new Map(); // peerId → handler
+    this._msgCount = 0;
+    this._partitioned = false; // network partition flag
+    this._partitionGroups = []; // [[peerA,peerB],[peerC,peerD]]
+    this._latencyMs = 20; // simulated latency
+    this._dropRate = 0.0; // 0-1 drop probability
+  }
+
+  register(peerId, handler) { this._handlers.set(peerId, handler); }
+  unregister(peerId) { this._handlers.delete(peerId); }
+
+  isReachable(fromId, toId) {
+    if (!this._partitioned) return true;
+    for (const grp of this._partitionGroups) {
+      if (grp.includes(fromId) && grp.includes(toId)) return true;
+    }
+    return false;
+  }
+
+  async send(fromId, toId, type, payload) {
+    this._msgCount++;
+    if (Math.random() < this._dropRate) return; // simulate packet loss
+    if (!this.isReachable(fromId, toId)) return;
+    const handler = this._handlers.get(toId);
+    if (!handler) return;
+    await new Promise(r => setTimeout(r, this._latencyMs + Math.random() * 10));
+    handler({ from: fromId, type, payload, ts: Date.now() });
+  }
+
+  async broadcast(fromId, type, payload, excludeSelf = true) {
+    const targets = [...this._handlers.keys()].filter(id => !excludeSelf || id !== fromId);
+    await Promise.all(targets.map(id => this.send(fromId, id, type, payload)));
+  }
+
+  get msgCount() { return this._msgCount; }
+  get partitioned() { return this._partitioned; }
+
+  setPartition(partitioned, groups = []) {
+    this._partitioned = partitioned;
+    this._partitionGroups = groups;
+  }
+}
+
+const BUS = new NetworkBus();
+
+// ── Peer: simulated distributed VM node ──
+class Peer {
+  constructor(id, role, bus, isSelf = false) {
+    this.id = id;
+    this.shortId = id.slice(0, 8);
+    this.role = role;
+    this.state = isSelf ? PeerState.SELF : PeerState.ONLINE;
+    this.isSelf = isSelf;
+    this.bus = bus;
+    this.runtime = new Runtime({ id: `peer-${id}` });
+    this.knownHashes = new Set(); // bloom-filter approximation
+    this.taskResults = new Map(); // taskId → result
+    this.votes = new Map(); // blockHash → Set(peerId)
+    this.peers = new Set(); // known peer IDs
+    this.metrics = { msgsIn: 0, msgsOut: 0, tasksRun: 0, blocksCommitted: 0 };
+    this._online = true;
+    bus.register(id, msg => this._recv(msg));
+  }
+
+  async _recv(msg) {
+    if (!this._online && !this.isSelf) return;
+    this.metrics.msgsIn++;
+    net.logGossip(this.shortId, msg.type, msg.from.slice(0, 8), msg);
+
+    switch (msg.type) {
+      case MsgType.HELLO:
+        this.peers.add(msg.from);
+        // reply with our DAG haves
+        await this.bus.send(this.id, msg.from, MsgType.DAG_HAVE, {
+          hashes: [...this.knownHashes].slice(0, 50)
+        });
+        break;
+
+      case MsgType.DAG_HAVE:
+        // merge into our known set
+        for (const h of (msg.payload.hashes || [])) this.knownHashes.add(h);
+        break;
+
+      case MsgType.DAG_WANT: {
+        // serve requested nodes from our dag
+        const nodes = (msg.payload.hashes || []).map(h => {
+          const n = this.runtime._machine.dagStore?.get(h);
+          return n ? n.toJSON() : null;
+        }).filter(Boolean);
+        if (nodes.length) {
+          await this.bus.send(this.id, msg.from, MsgType.DAG_PUSH, { nodes });
+        }
+        break;
+      }
+
+      case MsgType.DAG_PUSH: {
+        // ingest pushed nodes
+        const store = this.runtime._machine.dagStore;
+        for (const nj of (msg.payload.nodes || [])) {
+          store.add(DagNode.fromJSON(nj));
+          this.knownHashes.add(nj.hash);
+        }
+        break;
+      }
+
+      case MsgType.TASK_SUBMIT: {
+        // coordinator receives task
+        if (this.role !== PeerRole.COORDINATOR) break;
+        const task = msg.payload;
+        net.assignTask(task);
+        break;
+      }
+
+      case MsgType.TASK_ASSIGN: {
+        // worker executes task
+        const task = msg.payload;
+        net.logGossip(this.shortId, 'exec', 'local', { msg: `executing ${task.wfId}` });
+        this.state = PeerState.SYNCING;
+        net.renderPeers();
+        const tempRt = new Runtime({ id: `task-${task.id}` });
+        const steps = task.steps || [];
+        const results = [];
+        let ok = true;
+        for (const step of steps) {
+          try {
+            const out = await tempRt.process(step.op, step.args || []);
+            results.push({ op: step.op, value: out.result?.value, hash: out.result?.hash, error: out.error });
+            if (out.result?.hash) this.knownHashes.add(out.result.hash);
+          } catch (e) {
+            results.push({ op: step.op, error: e.message });
+            ok = false;
+          }
+        }
+        this.metrics.tasksRun++;
+        this.state = PeerState.ONLINE;
+        net.renderPeers();
+        const bundle = tempRt.export();
+        // push dag nodes to coordinator
+        await this.bus.send(this.id, msg.from, MsgType.DAG_PUSH, {
+          nodes: bundle.dagNodes?.nodes || []
+        });
+        await this.bus.send(this.id, msg.from, MsgType.TASK_RESULT, {
+          taskId: task.id, workerId: this.id, ok, results,
+          bundleHash: bundle.eventLog?.headHash
+        });
+        break;
+      }
+
+      case MsgType.TASK_RESULT:
+        net.receiveTaskResult(msg.payload);
+        break;
+
+      case MsgType.PROPOSE: {
+        // pBFT prevote
+        await this.bus.broadcast(this.id, MsgType.PREVOTE, {
+          blockHash: msg.payload.blockHash,
+          round: msg.payload.round,
+          voterId: this.id,
+          vote: this._shouldVote(msg.payload)
+        });
+        break;
+      }
+
+      case MsgType.PREVOTE:
+      case MsgType.PRECOMMIT: {
+        net.recordVote(msg.payload);
+        break;
+      }
+
+      case MsgType.COMMIT:
+        net.commitBlock(msg.payload);
+        break;
+
+      case MsgType.HEARTBEAT:
+        this.peers.add(msg.from);
+        break;
+
+      case MsgType.FAULT:
+        net.logGossip(this.shortId, 'fault', msg.from.slice(0,8), msg.payload);
+        break;
+    }
+  }
+
+  _shouldVote(proposal) {
+    // Simple: always vote yes unless partitioned from proposer
+    return this.bus.isReachable(this.id, proposal.proposerId ?? '');
+  }
+
+  async hello(peerId) {
+    this.metrics.msgsOut++;
+    await this.bus.send(this.id, peerId, MsgType.HELLO, { role: this.role });
+  }
+
+  async heartbeat() {
+    this.metrics.msgsOut++;
+    await this.bus.broadcast(this.id, MsgType.HEARTBEAT, { role: this.role });
+  }
+
+  toJSON() {
+    return {
+      id: this.id, shortId: this.shortId, role: this.role, state: this.state,
+      isSelf: this.isSelf, knownHashes: this.knownHashes.size, metrics: this.metrics,
+      dagNodes: 0
+    };
+  }
+}
+
+// ── Task ──
+class DistTask {
+  constructor(wfId, steps) {
+    this.id = Math.random().toString(36).slice(2, 10);
+    this.wfId = wfId;
+    this.steps = steps;
+    this.status = 'pending'; // pending | running | done | failed
+    this.assignedTo = null;
+    this.results = null;
+    this.bundleHash = null;
+    this.created = Date.now();
+    this.elapsed = null;
+    this.progress = 0;
+  }
+}
+
+// ── ConsensusBlock ──
+class CBlock {
+  constructor(round, taskId, bundleHash, proposerId) {
+    this.hash = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    this.round = round; this.taskId = taskId; this.bundleHash = bundleHash;
+    this.proposerId = proposerId; this.status = 'proposed'; // proposed|committed|rejected
+    this.prevotes = new Set(); this.precommits = new Set(); this.ts = Date.now();
+  }
+}
+
+// ── NetworkController: orchestrates simulation ──
+class NetworkController {
+  constructor() {
+    this.peers = new Map(); // peerId → Peer
+    this.selfPeer = null;
+    this.tasks = new Map(); // taskId → DistTask
+    this.blocks = []; // CBlock[]
+    this.round = 0;
+    this.gossipLog = [];
+    this.maxGossip = 200;
+    this.schedMode = 'round-robin'; // round-robin | least-loaded | random
+    this._rrIdx = 0;
+    this._heartbeatInterval = null;
+    this._selectedPeer = null;
+    this._totalMsgs = 0;
+  }
+
+  // ── Spawn peers ──
+  async init() {
+    // Create self
+    const selfId = await sha256('self-' + Date.now());
+    this.selfPeer = new Peer(selfId, PeerRole.COORDINATOR, BUS, true);
+    this.peers.set(selfId, this.selfPeer);
+
+    // Spawn default peers
+    await this._spawnPeer(PeerRole.WORKER);
+    await this._spawnPeer(PeerRole.WORKER);
+    await this._spawnPeer(PeerRole.VALIDATOR);
+
+    // Exchange hellos
+    await this._doHellos();
+    this._startHeartbeat();
+    this.renderPeers();
+    this.renderTopology();
+    this.updateStats();
+  }
+
+  async _spawnPeer(role) {
+    const id = await sha256(role + '-' + Date.now() + '-' + Math.random());
+    const peer = new Peer(id, role, BUS, false);
+    this.peers.set(id, peer);
+    // Announce to existing peers
+    for (const [pid, p] of this.peers) {
+      if (pid !== id) await peer.hello(pid);
+    }
+    this.logGossip(peer.shortId, 'hello', 'all', { msg: `${role} joined` });
+    return peer;
+  }
+
+  async spawnPeer() {
+    const roles = [PeerRole.WORKER, PeerRole.WORKER, PeerRole.VALIDATOR];
+    const role = roles[this.peers.size % roles.length];
+    await this._spawnPeer(role);
+    this.renderPeers();
+    this.renderTopology();
+    this.updateStats();
+    toast(`✓ spawned new ${role} peer`, 'success');
+  }
+
+  async _doHellos() {
+    for (const [id, peer] of this.peers) {
+      for (const [oid] of this.peers) {
+        if (id !== oid) await peer.hello(oid);
+      }
+    }
+  }
+
+  _startHeartbeat() {
+    if (this._heartbeatInterval) clearInterval(this._heartbeatInterval);
+    this._heartbeatInterval = setInterval(async () => {
+      if (this.selfPeer) await this.selfPeer.heartbeat();
+      this.updateStats();
+    }, 4000);
+  }
+
+  // ── Task dispatch ──
+  async dispatchWorkflow(wf) {
+    const task = new DistTask(wf.id || 'workflow', wf.steps || []);
+    this.tasks.set(task.id, task);
+    this.renderTasks();
+    document.getElementById('task-empty').style.display = 'none';
+
+    // Submit to coordinator (self or first coordinator peer)
+    const coordinator = [...this.peers.values()].find(p => p.role === PeerRole.COORDINATOR);
+    if (!coordinator) { toast('no coordinator peer', 'error'); return; }
+
+    this.logGossip(this.selfPeer?.shortId || 'self', 'task_submit', coordinator.shortId, { msg: `task ${task.id} → ${task.wfId}` });
+    await BUS.send(coordinator.id, coordinator.id, MsgType.TASK_SUBMIT, task);
+    this.updateStats();
+  }
+
+  assignTask(task) {
+    // Pick a worker
+    const workers = [...this.peers.values()].filter(p => p.role === PeerRole.WORKER && p._online);
+    if (!workers.length) { toast('no worker peers online', 'error'); return; }
+
+    let worker;
+    if (this.schedMode === 'round-robin') {
+      worker = workers[this._rrIdx % workers.length];
+      this._rrIdx++;
+    } else if (this.schedMode === 'least-loaded') {
+      worker = workers.reduce((a, b) => a.metrics.tasksRun <= b.metrics.tasksRun ? a : b);
+    } else {
+      worker = workers[Math.floor(Math.random() * workers.length)];
+    }
+
+    task.status = 'running';
+    task.assignedTo = worker.shortId;
+    this.tasks.set(task.id, task);
+    this.renderTasks();
+
+    this.logGossip(this.selfPeer?.shortId || 'coord', 'task_assign', worker.shortId, {
+      msg: `task ${task.id} → ${worker.shortId}`
+    });
+
+    const coordinator = [...this.peers.values()].find(p => p.role === PeerRole.COORDINATOR);
+    BUS.send(coordinator?.id || worker.id, worker.id, MsgType.TASK_ASSIGN, {
+      ...task, from: coordinator?.id
+    });
+  }
+
+  async receiveTaskResult(result) {
+    const task = this.tasks.get(result.taskId);
+    if (!task) return;
+    task.status = result.ok ? 'done' : 'failed';
+    task.results = result.results;
+    task.bundleHash = result.bundleHash;
+    task.elapsed = Date.now() - task.created;
+    task.progress = 100;
+    this.tasks.set(task.id, task);
+    this.renderTasks();
+
+    this.logGossip(result.workerId?.slice(0,8) || '?', 'exec', this.selfPeer?.shortId || 'coord', {
+      msg: `task ${task.id} ${task.status} in ${task.elapsed}ms`
+    });
+
+    // Trigger consensus on successful tasks
+    if (result.ok && result.bundleHash) {
+      await this.proposeBlock(task.id, result.bundleHash);
+    }
+    this.updateStats();
+  }
+
+  // ── Consensus (pBFT-lite) ──
+  async proposeBlock(taskId, bundleHash) {
+    this.round++;
+    const coordinator = [...this.peers.values()].find(p => p.role === PeerRole.COORDINATOR);
+    const block = new CBlock(this.round, taskId, bundleHash, coordinator?.id || 'self');
+    this.blocks.unshift(block);
+    this.renderConsensus();
+
+    this.logGossip(coordinator?.shortId || 'coord', 'consensus', 'all', {
+      msg: `propose block r${this.round}`
+    });
+
+    await BUS.broadcast(coordinator?.id || '', MsgType.PROPOSE, {
+      blockHash: block.hash, round: this.round,
+      taskId, bundleHash, proposerId: coordinator?.id
+    });
+
+    // Simulate prevotes from validators after short delay
+    setTimeout(async () => {
+      const validators = [...this.peers.values()].filter(p =>
+        p.role === PeerRole.VALIDATOR || p.role === PeerRole.WORKER
+      );
+      for (const v of validators) {
+        block.prevotes.add(v.id);
+        this.renderConsensus();
+        await new Promise(r => setTimeout(r, 80));
+      }
+      // Check threshold
+      const total = this.peers.size;
+      const needed = Math.floor((2 / 3) * total) + 1;
+      if (block.prevotes.size >= needed) {
+        // Precommit phase
+        for (const v of validators) {
+          block.precommits.add(v.id);
+          await new Promise(r => setTimeout(r, 60));
+        }
+        block.status = 'committed';
+        this.logGossip(coordinator?.shortId || 'coord', 'consensus', 'all', {
+          msg: `✓ committed r${this.round} (${block.prevotes.size}/${total} votes)`
+        });
+        // Update committed peer metrics
+        for (const p of this.peers.values()) p.metrics.blocksCommitted++;
+      } else {
+        block.status = 'rejected';
+        this.logGossip(coordinator?.shortId || 'coord', 'consensus', 'all', {
+          msg: `✗ rejected r${this.round} (${block.prevotes.size}/${total} < ${needed})`
+        });
+      }
+      this.renderConsensus();
+      this.updateStats();
+    }, 600);
+  }
+
+  recordVote(vote) {
+    const block = this.blocks.find(b => b.hash === vote.blockHash);
+    if (!block) return;
+    if (vote.vote) {
+      block.prevotes.add(vote.voterId);
+      block.precommits.add(vote.voterId);
+    }
+    this.renderConsensus();
+  }
+
+  commitBlock(payload) {
+    const block = this.blocks.find(b => b.hash === payload.blockHash);
+    if (block) { block.status = 'committed'; this.renderConsensus(); }
+  }
+
+  // ── DAG sync ──
+  async syncAll() {
+    if (!this.selfPeer) return;
+    const myHashes = [...this.selfPeer.runtime._machine.dagStore.all().map(n => n.hash)];
+    document.getElementById('sync-status-label').textContent = 'syncing…';
+
+    for (const [pid, peer] of this.peers) {
+      if (peer.isSelf) continue;
+      // Advertise what we have
+      await BUS.send(this.selfPeer.id, pid, MsgType.DAG_HAVE, { hashes: myHashes });
+      // Ask for what they might have that we don't
+      const want = [...peer.knownHashes].filter(h => !this.selfPeer.knownHashes.has(h)).slice(0, 20);
+      if (want.length) {
+        await BUS.send(this.selfPeer.id, pid, MsgType.DAG_WANT, { hashes: want });
+        this.logGossip(this.selfPeer.shortId, 'sync', peer.shortId, {
+          msg: `want ${want.length} nodes`
+        });
+      }
+    }
+
+    this.renderSyncView();
+    document.getElementById('sync-status-label').textContent = `synced — ${myHashes.length} local nodes`;
+    toast(`✓ dag sync complete`, 'success');
+  }
+
+  // ── Partition ──
+  togglePartition() {
+    if (!BUS.partitioned) {
+      // Split into two groups
+      const peerIds = [...this.peers.keys()];
+      const mid = Math.ceil(peerIds.length / 2);
+      const g1 = peerIds.slice(0, mid);
+      const g2 = peerIds.slice(mid);
+      BUS.setPartition(true, [g1, g2]);
+      document.getElementById('ns-partition').textContent = 'YES';
+      document.getElementById('ns-partition').style.color = 'var(--red)';
+      this.logGossip('net', 'fault', 'all', { msg: `⚡ network partition: [${g1.map(p=>p.slice(0,6)).join(',')}] | [${g2.map(p=>p.slice(0,6)).join(',')}]` });
+      toast('⚡ network partitioned into 2 groups', 'error');
+    } else {
+      BUS.setPartition(false, []);
+      document.getElementById('ns-partition').textContent = 'no';
+      document.getElementById('ns-partition').style.color = 'var(--green)';
+      this.logGossip('net', 'sync', 'all', { msg: '✓ partition healed — network rejoined' });
+      toast('✓ partition healed', 'success');
+    }
+    this.renderTopology();
+  }
+
+  // ── Gossip log ──
+  logGossip(from, type, to, payload) {
+    const typeClass = { sync:'sync', exec:'exec', hello:'sync', heartbeat:'', consensus:'consensus',
+      task_submit:'exec', task_assign:'exec', dag_have:'sync', dag_want:'sync', fault:'fault' }[type] || '';
+    const msg = payload?.msg || type;
+    const item = { from, type, to, msg, typeClass, ts: Date.now() };
+    this.gossipLog.unshift(item);
+    if (this.gossipLog.length > this.maxGossip) this.gossipLog.pop();
+    this._appendGossipRow(item);
+    this._totalMsgs++;
+  }
+
+  _appendGossipRow(item) {
+    const feed = document.getElementById('gossip-feed');
+    if (!feed) return;
+    const t = new Date(item.ts);
+    const timeStr = t.toLocaleTimeString('en-US', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const row = document.createElement('div');
+    row.className = 'gossip-item gossip-flash';
+    row.innerHTML = `
+      <span class="gossip-time">${timeStr}</span>
+      <span class="gossip-from">${item.from}</span>
+      <span class="gossip-msg ${item.typeClass}">${item.msg.slice(0, 80)}</span>`;
+    feed.insertBefore(row, feed.firstChild);
+    // Keep max 80 visible
+    while (feed.children.length > 80) feed.removeChild(feed.lastChild);
+  }
+
+  // ── Renders ──
+
+  renderPeers() {
+    const list = document.getElementById('peers-list');
+    if (!list) return;
+    list.innerHTML = '';
+    for (const [id, peer] of this.peers) {
+      const card = document.createElement('div');
+      card.className = `peer-card${peer.isSelf ? ' self-node' : ''}${this._selectedPeer === id ? ' selected' : ''}`;
+      const dotClass = peer.isSelf ? 'self' : { online:'online', syncing:'syncing', offline:'offline' }[peer.state] || 'online';
+      card.innerHTML = `
+        <div class="peer-card-header">
+          <div class="peer-dot ${dotClass}"></div>
+          <span class="peer-id">${peer.shortId}${peer.isSelf ? ' (you)' : ''}</span>
+          <span class="peer-role ${peer.role}">${peer.role}</span>
+        </div>
+        <div class="peer-stats">
+          <span class="peer-stat">dag: <em>${peer.knownHashes.size}</em></span>
+          <span class="peer-stat">tasks: <em>${peer.metrics.tasksRun}</em></span>
+          <span class="peer-stat">msgs↓: <em>${peer.metrics.msgsIn}</em></span>
+          <span class="peer-stat">blocks: <em>${peer.metrics.blocksCommitted}</em></span>
+        </div>`;
+      card.onclick = () => { this._selectedPeer = id; this.renderPeers(); this.renderTopology(); };
+      list.appendChild(card);
+    }
+    // Update topbar badge
+    const peerCount = this.peers.size - 1;
+    const badge = document.getElementById('net-peers-badge');
+    badge.textContent = `⬡ ${peerCount} peer${peerCount !== 1 ? 's' : ''}`;
+    badge.className = peerCount > 0 ? 'net-peers-badge has-peers' : 'net-peers-badge';
+  }
+
+  renderTopology() {
+    const canvas = document.getElementById('net-canvas');
+    if (!canvas) return;
+    const wrap = document.getElementById('net-canvas-wrap');
+    if (!wrap) return;
+    canvas.width = wrap.clientWidth || 600;
+    canvas.height = wrap.clientHeight || 400;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const peers = [...this.peers.values()];
+    const n = peers.length;
+    if (!n) return;
+
+    // Position peers in a circle
+    const cx = W / 2, cy = H / 2;
+    const r = Math.min(W, H) * 0.32;
+    const positions = new Map();
+    peers.forEach((p, i) => {
+      const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+      positions.set(p.id, { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r, peer: p });
+    });
+
+    // Draw edges (mesh topology - each peer connected to all others)
+    for (const [id, pos] of positions) {
+      for (const [oid, opos] of positions) {
+        if (id >= oid) continue;
+        const reachable = BUS.isReachable(id, oid);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineTo(opos.x, opos.y);
+        if (!reachable) {
+          ctx.strokeStyle = '#3d1a1a';
+          ctx.setLineDash([4, 6]);
+          ctx.lineWidth = 1;
+        } else {
+          ctx.strokeStyle = '#1e2535';
+          ctx.setLineDash([]);
+          ctx.lineWidth = this._selectedPeer === id || this._selectedPeer === oid ? 1.5 : 0.8;
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // Draw peer nodes
+    for (const [id, { x, y, peer }] of positions) {
+      const isSelected = this._selectedPeer === id;
+      const nodeR = peer.isSelf ? 20 : 16;
+      const color = peer.isSelf ? '#5b8af0' :
+                    peer.role === PeerRole.COORDINATOR ? '#5b8af0' :
+                    peer.role === PeerRole.VALIDATOR ? '#a78bfa' : '#3ecf6e';
+      const bgColor = peer.isSelf ? '#080f1f' :
+                      peer.role === PeerRole.COORDINATOR ? '#080f1f' :
+                      peer.role === PeerRole.VALIDATOR ? '#0d0818' : '#040f06';
+
+      // Glow ring for selected
+      if (isSelected) {
+        ctx.beginPath();
+        ctx.arc(x, y, nodeR + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = color + '40';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // Node circle
+      ctx.beginPath();
+      ctx.arc(x, y, nodeR, 0, Math.PI * 2);
+      ctx.fillStyle = bgColor;
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = peer.state === PeerState.SYNCING ? 2.5 : 1.5;
+      ctx.stroke();
+
+      // State dot
+      const dotColor = peer.isSelf ? '#5b8af0' :
+                       peer.state === PeerState.ONLINE ? '#3ecf6e' :
+                       peer.state === PeerState.SYNCING ? '#f0a93b' : '#55556a';
+      ctx.beginPath();
+      ctx.arc(x + nodeR - 4, y - nodeR + 4, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = dotColor;
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = color;
+      ctx.font = `${peer.isSelf ? 600 : 500} 9px IBM Plex Mono, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(peer.shortId.slice(0, 6), x, y - 1);
+
+      // Role label below
+      ctx.fillStyle = '#55556a';
+      ctx.font = '8px IBM Plex Mono, monospace';
+      ctx.fillText(peer.role.slice(0, 5), x, y + nodeR + 10);
+    }
+
+    // Central label
+    ctx.fillStyle = '#1e1e2a';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2a2a40';
+    ctx.strokeStyle = '#2a2a40';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#35354a';
+    ctx.font = '9px IBM Plex Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('mesh', cx, cy - 4);
+    ctx.fillText(`${peers.length}`, cx, cy + 5);
+  }
+
+  renderTasks() {
+    const queue = document.getElementById('exec-queue');
+    if (!queue) return;
+    const tasks = [...this.tasks.values()].reverse();
+    if (!tasks.length) { document.getElementById('task-empty').style.display = 'flex'; return; }
+    document.getElementById('task-empty').style.display = 'none';
+
+    queue.innerHTML = tasks.map(t => `
+      <div class="task-card ${t.status}">
+        <div class="task-header">
+          <span class="task-id">#${t.id}</span>
+          <span class="task-wf">${t.wfId} (${t.steps?.length || 0} steps)</span>
+          <span class="task-status-badge ${t.status}">${t.status}</span>
+        </div>
+        <div class="task-meta">
+          <span class="task-meta-item">worker: <em>${t.assignedTo || '—'}</em></span>
+          <span class="task-meta-item">elapsed: <em>${t.elapsed ? t.elapsed + 'ms' : '…'}</em></span>
+          ${t.bundleHash ? `<span class="task-meta-item">bundle: <em>${t.bundleHash.slice(0,8)}…</em></span>` : ''}
+          ${t.results ? `<span class="task-meta-item">steps ok: <em>${t.results.filter(r=>!r.error).length}/${t.results.length}</em></span>` : ''}
+        </div>
+        <div class="task-progress"><div class="task-progress-bar" style="width:${t.progress}%"></div></div>
+      </div>`).join('');
+  }
+
+  renderConsensus() {
+    const log = document.getElementById('consensus-log');
+    if (!log) return;
+    if (!this.blocks.length) return;
+    const peerCount = this.peers.size;
+    const threshold = Math.floor((2/3) * peerCount) + 1;
+    document.getElementById('consensus-threshold').textContent = `threshold: ${threshold}/${peerCount}`;
+
+    log.innerHTML = this.blocks.slice(0, 20).map(b => `
+      <div class="consensus-block ${b.status}">
+        <div class="cb-header">
+          <span class="cb-round">round ${b.round}</span>
+          <span class="cb-hash">${b.hash.slice(0,16)}…</span>
+          <span class="cb-votes">${b.prevotes.size}/${peerCount} prevotes · ${b.precommits.size}/${peerCount} precommits</span>
+          <span class="cb-status ${b.status}">${b.status}</span>
+        </div>
+        <div style="margin-top:4px;font-family:var(--mono);font-size:9px;color:var(--text3);">
+          task: ${b.taskId || '—'} · bundle: ${b.bundleHash?.slice(0,12) || '—'}…
+        </div>
+        <div style="margin-top:4px;height:2px;background:var(--border);border-radius:1px;overflow:hidden;">
+          <div style="height:100%;border-radius:1px;background:${b.status==='committed'?'var(--green)':b.status==='rejected'?'var(--red)':'var(--accent)'};width:${Math.min(100, (b.prevotes.size/Math.max(1,peerCount))*100)}%"></div>
+        </div>
+      </div>`).join('');
+  }
+
+  renderSyncView() {
+    const selfPeer = this.selfPeer;
+    if (!selfPeer) return;
+    const myHashes = [...selfPeer.knownHashes];
+    const allHashes = new Set();
+    for (const p of this.peers.values()) for (const h of p.knownHashes) allHashes.add(h);
+    const wantHashes = [...allHashes].filter(h => !selfPeer.knownHashes.has(h));
+
+    const wantEl = document.getElementById('want-list');
+    const haveEl = document.getElementById('have-set');
+    if (wantEl) {
+      wantEl.innerHTML = wantHashes.slice(0, 20).map(h => `
+        <div class="want-item">
+          <span class="want-hash">${h.slice(0,12)}…${h.slice(-6)}</span>
+          <span class="want-peers">${[...this.peers.values()].filter(p=>p.knownHashes.has(h)&&!p.isSelf).length} peers</span>
+          <span class="want-status">→ want</span>
+        </div>`).join('') || '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);">want list empty — fully synced</div>';
+    }
+    if (haveEl) {
+      haveEl.innerHTML = myHashes.slice(0, 20).map(h => `
+        <div class="want-item">
+          <span class="want-hash">${h.slice(0,12)}…${h.slice(-6)}</span>
+          <span class="want-peers">local</span>
+          <span class="want-status" style="color:var(--green)">✓ have</span>
+        </div>`).join('') || '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);">dag store empty</div>';
+    }
+  }
+
+  updateStats() {
+    const pCount = this.peers.size - 1;
+    let dagTotal = 0;
+    for (const p of this.peers.values()) dagTotal += p.knownHashes.size;
+    document.getElementById('ns-peers').textContent = pCount;
+    document.getElementById('ns-dag').textContent = dagTotal;
+    document.getElementById('ns-tasks').textContent = this.tasks.size;
+    document.getElementById('ns-round').textContent = this.round;
+    document.getElementById('ns-msgs').textContent = BUS.msgCount;
+  }
+}
+
+// ── Instantiate network ──
+const net = new NetworkController();
+
+// ── Net tab sub-tab switching ──
+document.getElementById('net-sub-tabs').addEventListener('click', e => {
+  const pane = e.target.dataset.pane; if (!pane) return;
+  document.querySelectorAll('.net-sub-tab').forEach(t => t.classList.toggle('active', t.dataset.pane === pane));
+  document.querySelectorAll('.net-sub-pane').forEach(p => p.classList.toggle('active', p.id === 'net-pane-' + pane));
+  if (pane === 'topology') setTimeout(() => net.renderTopology(), 50);
+  if (pane === 'sync') net.renderSyncView();
+});
+
+// ── Net controls ──
+document.getElementById('net-add-peer-btn').addEventListener('click', () => net.spawnPeer());
+document.getElementById('net-partition-btn').addEventListener('click', () => net.togglePartition());
+document.getElementById('net-clear-gossip').addEventListener('click', () => {
+  document.getElementById('gossip-feed').innerHTML = '';
+  net.gossipLog.length = 0;
+});
+
+document.getElementById('net-dispatch-btn').addEventListener('click', async () => {
+  const wf = PRESETS[Math.floor(Math.random() * PRESETS.length)].wf;
+  await net.dispatchWorkflow(wf);
+  // Switch to tasks pane
+  document.querySelectorAll('.net-sub-tab').forEach(t => t.classList.toggle('active', t.dataset.pane === 'tasks'));
+  document.querySelectorAll('.net-sub-pane').forEach(p => p.classList.toggle('active', p.id === 'net-pane-tasks'));
+});
+
+document.getElementById('net-dispatch-current-btn').addEventListener('click', async () => {
+  const val = document.getElementById('workflow-editor').value;
+  try {
+    const wf = JSON.parse(val);
+    await net.dispatchWorkflow(wf);
+    document.querySelectorAll('.net-sub-tab').forEach(t => t.classList.toggle('active', t.dataset.pane === 'tasks'));
+    document.querySelectorAll('.net-sub-pane').forEach(p => p.classList.toggle('active', p.id === 'net-pane-tasks'));
+    toast('✓ dispatched current workflow to network', 'success');
+  } catch(e) { toast('invalid workflow JSON', 'error'); }
+});
+
+document.getElementById('net-propose-btn').addEventListener('click', async () => {
+  const hash = await sha256('manual-block-' + Date.now());
+  await net.proposeBlock('manual', hash);
+  document.querySelectorAll('.net-sub-tab').forEach(t => t.classList.toggle('active', t.dataset.pane === 'consensus'));
+  document.querySelectorAll('.net-sub-pane').forEach(p => p.classList.toggle('active', p.id === 'net-pane-consensus'));
+});
+
+document.getElementById('net-sync-btn').addEventListener('click', async () => {
+  // First sync self's dag with runtime
+  const myNodes = rt.export().dagNodes?.nodes || [];
+  for (const n of myNodes) net.selfPeer?.knownHashes.add(n.hash);
+  await net.syncAll();
+});
+
+document.getElementById('net-bloom-btn').addEventListener('click', () => {
+  net.renderSyncView();
+  toast('bloom filter updated', 'success');
+});
+
+const schedModes = ['round-robin', 'least-loaded', 'random'];
+let schedIdx = 0;
+document.getElementById('net-sched-toggle').addEventListener('click', () => {
+  schedIdx = (schedIdx + 1) % schedModes.length;
+  net.schedMode = schedModes[schedIdx];
+  document.getElementById('net-sched-mode').textContent = `sched: ${net.schedMode}`;
+  toast(`scheduler: ${net.schedMode}`);
+});
+
+// Resize topology on window resize
+window.addEventListener('resize', () => {
+  if (document.getElementById('tab-network')?.classList.contains('active')) {
+    net.renderTopology();
+  }
+});
+
+// ── Patch main tab handler to init net on first visit ──
+let _netInited = false;
+const _origTabHandler = document.getElementById('main-tabs');
+_origTabHandler.addEventListener('click', async e => {
+  const tab = e.target.dataset.tab;
+  if (tab === 'network') {
+    if (!_netInited) {
+      _netInited = true;
+      await net.init();
+      toast('✓ network initialized — 4 peers online', 'success');
+    } else {
+      net.renderPeers();
+      setTimeout(() => net.renderTopology(), 50);
+    }
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+// END DISTRIBUTED VM
+// ══════════════════════════════════════════════════════════
+
+
+
+const OLLAMA_SYSTEM_PROMPT = `You are a merkem workflow builder. merkem is a deterministic compute runtime.
+Your ONLY job is to output a valid merkem workflow as a JSON object.
+
+AVAILABLE OPS:
+arithmetic: add, sub, mul, div, mod, abs, neg, pow, floor, ceil, round, min, max, clamp
+comparison: eq, neq, lt, gt, lte, gte
+boolean: not, and, or, xor, ifelse
+string: concat, len, upper, lower, trim, starts_with, ends_with, includes, replace, split, slice_str
+crypto: sha256
+list: list, append, prepend, slice_list, flatten, reverse, sort_list, uniq, sum, product, min_list, max_list, range
+map: map_new, get_map, put_map, del_map, keys_map, vals_map, merge_map, has_key
+json: json_encode, json_decode
+coerce: to_str, to_num, to_bool, type_of
+
+IMPORTANT RULES:
+- Steps run sequentially. You CANNOT reference the output of a previous step by name — each step takes literal args only.
+- If you want to use a previous result, you must carry forward the value literally (merkem is stateless per step in this builder).
+- Keep workflows focused: 3-8 steps max.
+- Every step must have "op" (string) and "args" (array of literals: strings, numbers, booleans, or arrays/objects).
+- Workflow must have "id" (snake_case string) and "steps" array.
+
+WORKFLOW FORMAT:
+{"id":"workflow_name","steps":[{"op":"add","args":[2,3]},{"op":"mul","args":[5,2]}]}
+
+You must ALWAYS respond with ONLY a valid JSON object in this format — no explanation, no markdown, no code blocks. Just the raw JSON.`;
+
+const OLLAMA_EXPLAIN_PROMPT = `You are explaining a merkem workflow to a developer. Be concise. For each step, give a one-line plain English description of what it does. Format as JSON array: [{"step":0,"op":"add","desc":"adds 10 and 32 to get 42"},…]. Only output the JSON array, nothing else.`;
+
+const AI_SUGGESTIONS = [
+  'hash the string "merkem" three times with sha256',
+  'compute 2 to the power of 16',
+  'check if "hello world" starts with "hello"',
+  'create a list 1 to 10 then sum it',
+  'uppercase "deterministic compute" and get its length',
+  'build a map with keys name and version',
+  'sort a list [5,2,8,1,9,3] and get the minimum',
+  'concatenate "proof" and "bundle" then hash it',
+];
+
+let ollamaConnected = false;
+let lastGeneratedWorkflow = null;
+
+// ── Ollama helpers ──
+
+function getOllamaUrl() {
+  return (document.getElementById('ollama-url').value || 'http://localhost:11434').replace(/\/$/, '');
+}
+function getOllamaModel() {
+  return document.getElementById('ollama-model').value.trim() || 'llama3.2';
+}
+
+async function ollamaPing() {
+  const indicator = document.getElementById('ollama-indicator');
+  indicator.textContent = '⟳ ollama';
+  indicator.className = 'ollama-status checking';
+  try {
+    const r = await fetch(getOllamaUrl() + '/api/tags', { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) throw new Error('non-200');
+    const data = await r.json();
+    const models = (data.models || []).map(m => m.name);
+    ollamaConnected = true;
+    indicator.textContent = '✓ ollama';
+    indicator.className = 'ollama-status connected';
+    document.getElementById('ai-model-badge').textContent = getOllamaModel();
+    return { ok: true, models };
+  } catch (e) {
+    ollamaConnected = false;
+    indicator.textContent = '✗ ollama';
+    indicator.className = 'ollama-status error';
+    return { ok: false, error: e.message };
+  }
+}
+
+async function ollamaGenerate(systemPrompt, userPrompt) {
+  const url = getOllamaUrl() + '/api/chat';
+  const model = getOllamaModel();
+  const body = {
+    model,
+    stream: false,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    options: { temperature: 0.1, top_p: 0.9 }
+  };
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000)
+  });
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error(`Ollama error ${r.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await r.json();
+  return data.message?.content || data.response || '';
+}
+
+function extractJSON(text) {
+  // Try direct parse first
+  try { return JSON.parse(text.trim()); } catch {}
+  // Strip markdown code fences
+  const stripped = text.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
+  try { return JSON.parse(stripped); } catch {}
+  // Find first {...} block
+  const match = text.match(/\{[\s\S]*\}/);
+  if (match) { try { return JSON.parse(match[0]); } catch {} }
+  return null;
+}
+
+// ── Chat UI ──
+
+function aiAppendMessage(role, content, extra = {}) {
+  const msgs = document.getElementById('ai-chat-messages');
+  const div = document.createElement('div');
+  div.className = `ai-msg ai-msg-${role}`;
+  div.innerHTML = `<div class="ai-msg-label">${role}</div><div class="ai-msg-body">${content}</div>`;
+  if (extra.id) div.id = extra.id;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function aiShowThinking() {
+  const msgs = document.getElementById('ai-chat-messages');
+  const div = document.createElement('div');
+  div.className = 'ai-msg ai-msg-assistant';
+  div.id = 'ai-thinking-msg';
+  div.innerHTML = `<div class="ai-msg-label">ollama / ${getOllamaModel()}</div>
+    <div class="ai-thinking"><span></span><span></span><span></span></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function aiRemoveThinking() {
+  document.getElementById('ai-thinking-msg')?.remove();
+}
+
+function aiShowWorkflow(wf, explanation) {
+  const wfEditor = document.getElementById('ai-wf-editor');
+  const wfEmpty = document.getElementById('ai-wf-empty');
+  const wfExpl = document.getElementById('ai-wf-explanation');
+  const copyBtn = document.getElementById('ai-copy-wf-btn');
+  const sendBtn = document.getElementById('ai-send-to-run-btn');
+
+  wfEmpty.style.display = 'none';
+  wfEditor.style.display = 'block';
+  wfEditor.value = JSON.stringify(wf, null, 2);
+  lastGeneratedWorkflow = wf;
+  copyBtn.disabled = false;
+  sendBtn.disabled = false;
+
+  if (explanation && explanation.length) {
+    wfExpl.style.display = 'block';
+    wfExpl.innerHTML = `<div class="section-label" style="margin-bottom:6px;">step breakdown</div>` +
+      explanation.map((s, i) => `
+        <div class="ai-explanation-step">
+          <span class="ai-step-num">${i}</span>
+          <span class="ai-step-op">${s.op || wf.steps[i]?.op || ''}</span>
+          <span class="ai-step-desc">${s.desc || ''}</span>
+        </div>`).join('');
+  }
+}
+
+async function aiQuickRunPreview(wf) {
+  const previewEl = document.getElementById('ai-run-preview');
+  const eventsEl = document.getElementById('ai-preview-events');
+  previewEl.style.display = 'block';
+  eventsEl.innerHTML = '';
+
+  const tempRt = new Runtime({ id: 'ai-preview' });
+  for (const step of (wf.steps || [])) {
+    try {
+      const out = await tempRt.process(step.op, step.args || []);
+      const row = document.createElement('div');
+      row.className = 'event-item';
+      row.innerHTML = `
+        <span class="ev-seq">${out.event?.sequence ?? '?'}</span>
+        <span class="ev-op" style="min-width:100px">${step.op}</span>
+        ${out.error
+          ? `<span class="ev-result ev-error">${out.error}</span>`
+          : `<span class="ev-result">${fmtVal(out.result?.value)}</span>`}`;
+      eventsEl.appendChild(row);
+    } catch (e) {
+      const row = document.createElement('div');
+      row.className = 'event-item';
+      row.innerHTML = `<span class="ev-seq">!</span><span class="ev-op">${step.op}</span><span class="ev-result ev-error">${e.message}</span>`;
+      eventsEl.appendChild(row);
+    }
+  }
+}
+
+// ── Main AI build flow ──
+
+async function aiBuildWorkflow(userPrompt) {
+  if (!userPrompt.trim()) return;
+
+  const sendBtn = document.getElementById('ai-send-btn');
+  sendBtn.disabled = true;
+  sendBtn.textContent = '⟳';
+
+  // Reset preview
+  document.getElementById('ai-run-preview').style.display = 'none';
+  document.getElementById('ai-wf-explanation').style.display = 'none';
+
+  // Show user message
+  aiAppendMessage('user', userPrompt.replace(/</g, '&lt;'));
+
+  // Check connection first
+  if (!ollamaConnected) {
+    const pingResult = await ollamaPing();
+    if (!pingResult.ok) {
+      aiAppendMessage('error', `Cannot reach Ollama at <em>${getOllamaUrl()}</em>. Make sure Ollama is running locally:<br><em>ollama serve</em><br><em>ollama pull ${getOllamaModel()}</em><br>Also ensure CORS is enabled: set env var <em>OLLAMA_ORIGINS=*</em>`);
+      sendBtn.disabled = false; sendBtn.textContent = 'build ↗';
+      return;
+    }
+  }
+
+  aiShowThinking();
+  let rawText = '';
+  try {
+    rawText = await ollamaGenerate(OLLAMA_SYSTEM_PROMPT, userPrompt);
+  } catch (e) {
+    aiRemoveThinking();
+    aiAppendMessage('error', `Ollama request failed: ${e.message}`);
+    sendBtn.disabled = false; sendBtn.textContent = 'build ↗';
+    return;
+  }
+
+  aiRemoveThinking();
+
+  const wf = extractJSON(rawText);
+  if (!wf || !wf.steps || !Array.isArray(wf.steps)) {
+    aiAppendMessage('error', `Could not parse a valid workflow from the model output.<br><br>Raw response:<br><em>${rawText.slice(0, 400).replace(/</g, '&lt;')}</em>`);
+    sendBtn.disabled = false; sendBtn.textContent = 'build ↗';
+    return;
+  }
+
+  // Validate step ops
+  const unknownOps = wf.steps.filter(s => s.op && !BUILTINS[s.op]).map(s => s.op);
+  let warnMsg = '';
+  if (unknownOps.length) {
+    warnMsg = ` <span style="color:var(--amber)">(warning: unknown ops: ${unknownOps.join(', ')})</span>`;
+  }
+
+  aiAppendMessage('assistant', `Generated workflow <em>${wf.id || 'workflow'}</em> with ${wf.steps.length} steps.${warnMsg}`);
+
+  // Get explanations
+  let explanation = [];
+  try {
+    const explRaw = await ollamaGenerate(
+      OLLAMA_EXPLAIN_PROMPT,
+      'Workflow: ' + JSON.stringify(wf)
+    );
+    const explParsed = extractJSON(explRaw);
+    if (Array.isArray(explParsed)) explanation = explParsed;
+  } catch { /* explanations are optional */ }
+
+  aiShowWorkflow(wf, explanation);
+  await aiQuickRunPreview(wf);
+
+  sendBtn.disabled = false;
+  sendBtn.textContent = 'build ↗';
+}
+
+// ── Suggestion chips ──
+
+function initAISuggestions() {
+  const chips = document.getElementById('ai-suggestion-chips');
+  AI_SUGGESTIONS.slice(0, 5).forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'ai-chip';
+    btn.textContent = s.length > 44 ? s.slice(0, 42) + '…' : s;
+    btn.title = s;
+    btn.onclick = () => {
+      document.getElementById('ai-prompt').value = s;
+      aiBuildWorkflow(s);
+    };
+    chips.appendChild(btn);
+  });
+}
+
+// ── Event listeners ──
+
+document.getElementById('ai-send-btn').addEventListener('click', () => {
+  const prompt = document.getElementById('ai-prompt').value.trim();
+  aiBuildWorkflow(prompt);
+});
+
+document.getElementById('ai-prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    const prompt = document.getElementById('ai-prompt').value.trim();
+    aiBuildWorkflow(prompt);
+  }
+});
+
+document.getElementById('ollama-ping-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('ollama-ping-btn');
+  btn.disabled = true; btn.textContent = '…';
+  const result = await ollamaPing();
+  if (result.ok) {
+    const modelList = result.models.slice(0, 6).join(', ');
+    toast(`✓ ollama online — models: ${modelList || 'none pulled'}`, 'success');
+    aiAppendMessage('system', `Ollama connected at <em>${getOllamaUrl()}</em>.<br>Available models: <em>${result.models.slice(0,8).join(', ') || 'none — run: ollama pull llama3.2'}</em>`);
+  } else {
+    toast('✗ ollama unreachable — is it running?', 'error');
+    aiAppendMessage('error', `Could not reach <em>${getOllamaUrl()}</em>.<br>Start with: <em>OLLAMA_ORIGINS=* ollama serve</em>`);
+  }
+  btn.disabled = false; btn.textContent = 'ping';
+});
+
+document.getElementById('ollama-url').addEventListener('change', () => { ollamaConnected = false; });
+document.getElementById('ollama-model').addEventListener('change', () => {
+  document.getElementById('ai-model-badge').textContent = getOllamaModel();
+});
+
+document.getElementById('ai-copy-wf-btn').addEventListener('click', () => {
+  if (!lastGeneratedWorkflow) return;
+  navigator.clipboard?.writeText(JSON.stringify(lastGeneratedWorkflow, null, 2));
+  toast('workflow copied to clipboard', 'success');
+});
+
+document.getElementById('ai-send-to-run-btn').addEventListener('click', () => {
+  if (!lastGeneratedWorkflow) return;
+  document.getElementById('workflow-editor').value = JSON.stringify(lastGeneratedWorkflow, null, 2);
+  // Switch to run tab
+  document.querySelectorAll('.tab-top').forEach(t => t.classList.toggle('active', t.dataset.tab === 'run'));
+  document.querySelectorAll('.workspace').forEach(w => w.classList.toggle('active', w.id === 'tab-run'));
+  toast('✓ workflow loaded into run tab', 'success');
+});
+
+// ── Update main tab handler to include ai tab ──
+// (patch the existing tab listener to handle 'ai' tab ping)
+const _origTabClick = document.getElementById('main-tabs')._ollamaPatched;
+if (!_origTabClick) {
+  document.getElementById('main-tabs').addEventListener('click', e => {
+    const tab = e.target.dataset.tab;
+    if (tab === 'ai' && !ollamaConnected) {
+      // auto-ping when switching to ai tab
+      ollamaPing();
+    }
+  });
+  document.getElementById('main-tabs')._ollamaPatched = true;
+}
+
+// ── Init ──
+initAISuggestions();
+ollamaPing(); // attempt connection on load
+
+// ══════════════════════════════════════════════════════════
+// END OLLAMA AI BUILDER
+// ══════════════════════════════════════════════════════════
+
+
+updateRuntimeInfo();
+setStatus('ready');
+updateReplayTab();
+</script>
+</body>
+</html>
